@@ -2,7 +2,7 @@
 name: microsoft-outlook
 description: "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking a message for phishing, extracting attachments safely, reading meeting invites and time zones, or automating Outlook through Microsoft Graph mail and calendar, Office.js add-ins, rules, signatures and search (AQS/KQL), in new or classic Outlook. Drafts by default: sends only a draft the user approved, after reading it back. Not needed for Gmail web or plain SMTP code."
 license: MIT
-compatibility: "Python 3.9+ standard library only. Tested on Linux only; macOS and Windows expected but untested. Read-tested on 28 public sample .msg files (not shipped; Outlook versions unknown). .pst is orientation only. Graph, Office.js and VBA parts are documented from Microsoft Learn and not run against a tenant."
+compatibility: "Python 3.9+ standard library only. Smoke tests pass in CI on Linux, macOS and Windows (Python 3.9 and 3.13); Windows needs tzdata for inspect_ics.py --tz. Read-tested on 28 public sample .msg files (7 MIT ones shipped in tests/samples; Outlook versions unknown). .pst is orientation only. Graph, Office.js and VBA parts are documented from Microsoft Learn and not run against a tenant."
 metadata:
   version: "0.1.9"
   updated: "2026-10-13"
@@ -134,7 +134,7 @@ messages, 60 s (120 s extract) wall clock covering parsing and writing.
 - Readers: compressed RTF and TNEF were checked on public samples and a test corpus only;
   unusual Outlook builds may still give `complete: false` (`fallbacks.md`). Nested messages are
   read to depth 4; deeper ones are listed as incomplete.
-- Scripts: tested on Linux only. New Outlook for Windows and Outlook on the web: no VBA, COM or
+- Scripts: smoke-tested in CI on Linux, macOS and Windows (on Windows, `pip install tzdata` for `--tz`). New Outlook for Windows and Outlook on the web: no VBA, COM or
   object model; web add-ins and Graph only. Classic Outlook for Windows runs VBA, COM and web
   add-ins. .pst in new Outlook is partial (Microsoft's feature comparison).
 

@@ -47,7 +47,7 @@ Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python 
 
 | What | Result |
 | :--- | :--- |
-| Python, OS | 3.13.5 and 3.9.25 on Linux x86_64; macOS and Windows not run |
+| Python, OS | 3.13.5 and 3.9.25 on Linux x86_64 by hand; CI on ubuntu, macos and windows runners with Python 3.9 and 3.13 (smoke tests only; no Outlook) |
 | Synthetic fixtures | .msg (cross-read by olefile 0.47, extract-msg 0.56.1), .eml, winmail.dat, .ics |
 | TNEF | tnefparse 1.4.0 sample corpus, 19 files, results equal |
 | Shipped public samples | 7 MIT-licensed real files in `tests/samples/` (MSGReader, ruby-msg), checked in every default test run against expected subjects and attachment names |
@@ -74,7 +74,7 @@ a file fails, open an issue with the script, the error line and the Outlook vers
 itself unless it holds nothing private.
 
 ## Status and maintenance
-Version 0.1.9, published on npm and GitHub (pre-1.0). Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.9, published on npm and GitHub (pre-1.0). Smoke tests pass in CI on Linux, macOS and Windows (Python 3.9 and 3.13); Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says
