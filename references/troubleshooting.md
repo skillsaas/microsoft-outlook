@@ -10,6 +10,9 @@ Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
 | Body empty, or `RTF body not decoded` under `incomplete` | RTF-only message the decoder could not read | `fallbacks.md` RTF section |
 | `no-authentication-results` | Saved .msg from Outlook often lacks transport headers | Say the sender could not be verified from the file; check in Outlook (message details) |
 | Wrong meeting time | `tzid`, `iana`, `local_time` in `inspect_ics.py --tz` output | Windows names are mapped with CLDR; a DST gap or overlap needs the organizer's confirmation |
+| Graph `401` after working earlier | token expired | Let the connector or MSAL get a new token; never paste one by hand |
+| Sign-in asks for admin approval | scope needs admin consent in this tenant | Stop; tell the user which scope and why; do not try other scopes |
+| Sign-in blocked by policy, or device code refused | Conditional Access | The organization's decision: report it, do not switch client or flow |
 | `complete: false` / `parse-incomplete` | `incomplete` list | Say the report is partial; ask for the original file; raise a cap only with the user's OK |
 | Exit 3 "time limit" or "over N attachments" | the error text | A hostile or huge file; ask before raising `--timeout` or `--max-attachments` |
 | Recurring meeting shows once | `rrule` present | The script does not expand RRULE; read the rule to the user |

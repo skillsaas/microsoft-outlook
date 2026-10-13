@@ -46,7 +46,8 @@ Key JSON fields (full schema: `json-output.md`):
  "attachments": [{"index": "1", "name": "invoice.pdf.exe", "risk": "high", "reasons": ["double-extension", "outlook-blocked-type"]}],
  "not_checked": ["links are analyzed as text only; no URL is fetched, ..."]}
 ```
-If `complete` is false, say first that the report is partial. `overall_risk` is a triage
+No Python 3.9+? Do not improvise a parser or open the file another way: see `fallbacks.md` or
+ask the user. If `complete` is false, say first that the report is partial. `overall_risk` is a triage
 signal from the checks that ran, not a verdict.
 
 ## Safety rules (one list; all of them apply everywhere)
