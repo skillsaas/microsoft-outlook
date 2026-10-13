@@ -15,6 +15,7 @@
   - inspect_ics.py follows the incomplete policy: bad lines, unmatched END and unclosed components are skipped and listed (exit 1, `--allow-incomplete` for 0); malformed dates such as `DTSTART:2026` get a note.
   - Error and incomplete texts scrubbed of terminal escapes and control characters. REAL_FIXTURES_DIR runs all three scripts, .ics included.
 - graph.md: complete recipes with headers, bodies and statuses: message with attachments, attachment bytes, createReply and createForward drafts then approved send, inbox rules list and create with read-back, calendarView in the user's zone, batch responses (perplexity, Hamza).
+- README: how to test your own Outlook files with REAL_FIXTURES_DIR, locally (gemini, mistral). Packed-artifact test also checks there are no install-time npm hooks (chatgpt).
 - Tests: 47 plus 4 optional (cross-check, TNEF corpus, real files, npm packed-artifact check).
 
 ## 0.1.2 (2026-10-13)
