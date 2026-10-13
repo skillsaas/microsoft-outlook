@@ -913,6 +913,8 @@ def _():
     need = {n for n in need if os.path.exists(os.path.join(ROOT, n))} | {"SKILL.md"}
     assert need <= files, sorted(need - files)
     assert not [f for f in files if "__pycache__" in f or f.endswith(".pyc")], "bytecode packed"
+    hooks = json.load(open(os.path.join(ROOT, "package.json"))).get("scripts") or {}
+    assert not set(hooks) & {"preinstall", "install", "postinstall", "prepare", "prepack", "postpack"}, hooks
 
 
 

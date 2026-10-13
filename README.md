@@ -41,6 +41,20 @@ Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python 
 | `tests/smoke_test.py`, `tests/make_fixtures.py` | Tests and the synthetic fixture builder |
 | `SECURITY.md` | Threat model and how to report a problem |
 
+## Test it on your own Outlook files
+Real Outlook-saved files have not been tested (none were available). To check yours, without
+uploading anything anywhere:
+
+```sh
+mkdir ~/outlook-samples            # copy .msg, .eml, winmail.dat and .ics files here
+REAL_FIXTURES_DIR=~/outlook-samples python3 tests/smoke_test.py
+```
+
+Every file goes through all three scripts (inspect, extract into a temp folder, ics). The test
+fails if any script crashes or prints something other than JSON. Results stay on your machine. If
+a file fails, open an issue with the script, the error line and the Outlook version, never the file
+itself unless it holds nothing private.
+
 ## Status and maintenance
 Version 0.1.3, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
