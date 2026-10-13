@@ -1,11 +1,17 @@
 # Fallbacks
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 ## No Python 3.9+
 The scripts need Python 3.9 or later (zoneinfo, standard library only). Without it: ask the
 user to open the message in Outlook and use View message source / message details, or save the
 MIME from Graph (`/$value`) for later. Do not install system packages without asking.
 
-## .pst and .ost files
+## .pst and .ost files (orientation only, untested on a real .pst)
+A .pst can be many gigabytes: check its size first, and the free disk space, since readpst
+writes every message out (often more space than the .pst itself). Ask which folder or date
+range is needed before converting everything.
+
 No bundled reader. In order of preference:
 1. **Classic Outlook**: File > Open & Export > Open Outlook Data File, then search or export.
 2. **New Outlook**: .pst support is partial and rolling out (Microsoft feature comparison page).
@@ -25,9 +31,9 @@ bwrap --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 \
    there is no bwrap: use classic Outlook, or a disposable VM.
 4. For an .ost: read the server mailbox through Graph instead; an .ost belongs to a profile.
 
-## RTF-only bodies (`rtf-body-not-decoded`)
-Some .msg and TNEF messages carry only compressed RTF (MS-OXRTFCP). The inspector does not
-decode it. Ask the user to save the message as HTML or forward it as an attachment from new
+## RTF-only bodies
+Since 0.1.1 the inspector decodes compressed RTF (flag `body-from-rtf`). If that fails, the
+report says `RTF body not decoded` under `incomplete`. Then ask the user to save the message as HTML or forward it as an attachment from new
 Outlook or Outlook on the web, or fetch the MIME through Graph `/$value` (Exchange builds the
 MIME; whether it carries an HTML body for an RTF-only item was not tested here).
 

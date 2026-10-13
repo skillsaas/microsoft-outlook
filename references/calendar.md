@@ -1,5 +1,7 @@
 # Calendar: invites, .ics, time zones, Graph
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 ## Reading an invite
 `inspect_ics.py invite.ics --json --tz <user zone>`. For a meeting request inside an email,
 `inspect_mail.py` lists the `text/calendar` part (kind `calendar`); save it with
@@ -18,9 +20,14 @@ Fields that matter:
 
 ## Time zones
 - Outlook and Exchange often write **Windows zone names** as TZID, such as
-  `Pakistan Standard Time`, with a VTIMEZONE block giving the offsets. These are not IANA names,
-  so `--tz` leaves them unconverted and lists them in `non-iana-tzid`. Map them with the Unicode
-  CLDR `windowsZones.xml` table, or read the VTIMEZONE offsets, and say which you used.
+  `Pakistan Standard Time`, with a VTIMEZONE block giving the offsets. Since 0.1.1 `--tz` maps
+  them with the shipped CLDR `windowsZones.xml` table (`scripts/windows_zones.json`, 142 zones,
+  territory 001 defaults) and converts, adding `iana` and a note. The VTIMEZONE rules in the
+  file are not evaluated: if the file's offsets disagree with the mapped zone (an old or custom
+  definition), trust the organizer's confirmation over either.
+- Local times in a daylight saving gap (`local_time: nonexistent`, for example 02:30 on the
+  spring-forward night in New York) or overlap (`ambiguous`) are flagged as medium risks. Ask
+  the organizer rather than guessing.
 - UTC (`...Z`) and IANA TZIDs (`Europe/London`) are converted with Python `zoneinfo`, including
   daylight saving (tested: 14:00 Europe/London on 2026-10-16 is 18:00 Asia/Karachi).
 - Always report times in the user's zone with the zone named, and say when a meeting recurs.
@@ -50,6 +57,10 @@ POST /me/calendar/getSchedule           # free/busy for several people
   private appointment.
 - `accept`, `tentativelyAccept` and `decline` send a response to the organizer unless
   `sendResponse` is false (default true). Ask which the user wants.
+- Approval is for one exact action: accept, tentative, decline, propose a new time, or cancel,
+  with its comment. If the user changes any part, show it again and ask again.
+- Exchange and Outlook can add an incoming invite to the calendar as tentative on their own
+  (calendar auto-processing). An invite being on the calendar is not the user's answer.
 - Updating or deleting a meeting the user organizes notifies attendees. Ask first.
 
 ## Sources
@@ -59,4 +70,5 @@ POST /me/calendar/getSchedule           # free/busy for several people
 - Event resource: https://learn.microsoft.com/en-us/graph/api/resources/event?view=graph-rest-1.0
 - MS-OXCICAL (Outlook's iCalendar mapping): https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxcical/
 - RFC 5545 and RFC 5546: https://www.rfc-editor.org/rfc/rfc5545, https://www.rfc-editor.org/rfc/rfc5546
+- Calendar processing (AutoUpdate marks requests tentative): https://learn.microsoft.com/en-us/powershell/module/exchange/set-calendarprocessing
 - CLDR Windows zone mapping: https://github.com/unicode-org/cldr/blob/main/common/supplemental/windowsZones.xml

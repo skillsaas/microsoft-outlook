@@ -100,6 +100,7 @@ def parse(data, max_attachments=500, max_total=256 * 1024 * 1024):
     if len(data) < 6 or struct.unpack_from("<I", data, 0)[0] != SIG:
         raise TnefError("not TNEF (signature 0x223E9F78 missing)")
     o, msg, atts, warnings, cur, total = 6, {}, [], [], None, 0
+    incomplete = []
     while o < len(data):
         if o + 9 > len(data):
             warnings.append("trailing bytes after the last attribute")
@@ -116,7 +117,7 @@ def parse(data, max_attachments=500, max_total=256 * 1024 * 1024):
             if sum(val) & 0xFFFF != cks:
                 warnings.append("checksum mismatch in attribute 0x%08x" % attr)
         else:
-            warnings.append("data ends before the checksum of attribute 0x%08x (truncated)" % attr)
+            incomplete.append("TNEF data ends before the checksum of attribute 0x%08x (truncated)" % attr)
         o += 2
         name = ATT.get(attr & 0xFFFF, "0x%04x" % (attr & 0xFFFF))
         if level == LVL_ATTACHMENT:
@@ -137,7 +138,7 @@ def parse(data, max_attachments=500, max_total=256 * 1024 * 1024):
                 try:
                     p = _mapi_props(val)
                 except TnefError as e:
-                    warnings.append("attachment properties: %s" % e)
+                    incomplete.append("TNEF attachment %d properties not read: %s" % (len(atts), e))
                     p = {}
                 if isinstance(p.get(0x3707), str):
                     cur["long_name"] = p[0x3707]
@@ -167,7 +168,7 @@ def parse(data, max_attachments=500, max_total=256 * 1024 * 1024):
                 try:
                     p = _mapi_props(val)
                 except TnefError as e:
-                    warnings.append("message properties: %s" % e)
+                    incomplete.append("TNEF message properties not read: %s" % e)
                     p = {}
                 for pid, key in ((0x0037, "subject"), (0x1000, "body"), (0x1013, "body_html"),
                                  (0x1009, "rtf_compressed")):
@@ -177,4 +178,4 @@ def parse(data, max_attachments=500, max_total=256 * 1024 * 1024):
             warnings.append("unknown attribute level %d" % level)
     for a in atts:
         a["filename"] = a["long_name"] or a["name"]
-    return {"message": msg, "attachments": atts, "warnings": warnings}
+    return {"message": msg, "attachments": atts, "warnings": warnings, "incomplete": incomplete}

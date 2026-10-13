@@ -2,7 +2,12 @@
 extract_attachments.py. Standard library only. Nothing is fetched, opened or executed.
 
 Model: {"format", "headers": {...}, "auth": {...}, "text", "html", "attachments": [ {name,
-content_type, data, inline, content_id, kind, nested} ], "warnings"}.
+content_type, data, inline, content_id, kind, nested} ], "warnings", "flags", "incomplete"}.
+
+"incomplete" lists every place where content was not read (a depth, part or size cap, a nested
+item that failed to parse, unreadable MAPI properties, an undecodable body). Nested lists are
+copied up to the top model, so a caller only has to look at the top level. Callers must treat a
+non-empty list as "this report is partial", never as a clean result.
 """
 import email
 import email.policy
@@ -12,14 +17,35 @@ import re
 from html.parser import HTMLParser
 
 import msgcfb
+import rtfbody
 import tnef
 import mailsafe
 
 MAX_DEPTH = 4
+MAX_MIME_DEPTH = 50
+LIMITS = {"max_attachments": 500}
+_count = {"n": 0}
 
 
 class MailError(Exception):
     pass
+
+
+class LimitError(Exception):
+    """A safety cap that makes the scripts refuse (exit 3) instead of returning a partial view."""
+
+
+def _new(fmt):
+    return {"format": fmt, "headers": {}, "auth": [], "text": None, "html": None, "attachments": [],
+            "warnings": [], "flags": [], "incomplete": []}
+
+
+def _add_att(m, a):
+    _count["n"] += 1
+    if _count["n"] > LIMITS["max_attachments"]:
+        raise LimitError("over %d attachments in total, nested ones included (--max-attachments)"
+                         % LIMITS["max_attachments"])
+    m["attachments"].append(a)
 
 
 def sniff(data):
@@ -76,22 +102,40 @@ def _decode_text(part):
         return raw.decode("utf-8", "replace")
 
 
-def _leaves(msg, depth=0):
+def _leaves(msg, lost, depth=0):
     """Leaf parts in order, without descending into attached messages (message/rfc822),
-    which are parsed separately as nested messages."""
-    if depth > 50:
-        return
+    which are parsed separately as nested messages. Parts below MAX_MIME_DEPTH are not read and
+    are recorded in lost, so the caller can mark the parse incomplete."""
     if msg.is_multipart() and msg.get_content_type() != "message/rfc822":
+        if depth >= MAX_MIME_DEPTH:
+            lost.append("MIME parts nested over %d levels were not read" % MAX_MIME_DEPTH)
+            return
         for p in msg.get_payload():
-            yield from _leaves(p, depth + 1)
+            yield from _leaves(p, lost, depth + 1)
     else:
         yield msg
 
 
+MAX_BOUNDARIES = 2000
+
+
 def from_eml(data, depth=0):
+    # The stdlib parser builds the whole tree first. Refuse absurd multipart nesting up front so it
+    # cannot exhaust memory or the recursion limit (each nested multipart declares a boundary).
+    nb = len(re.findall(rb"(?i)boundary\s*=", data))
+    if nb > MAX_BOUNDARIES:
+        raise LimitError("%d MIME boundaries declared, over the %d cap" % (nb, MAX_BOUNDARIES))
+    # Every MIME part starts at a "--boundary" line, so this bounds the part count cheaply,
+    # before the stdlib spends seconds building a tree of 100,000 parts.
+    cap = 2 * LIMITS["max_attachments"] + 2 * MAX_BOUNDARIES
+    nd = len(re.findall(rb"(?m)^--[!-~]", data))
+    if nd > cap:
+        raise LimitError("%d MIME delimiter lines, over the %d cap for --max-attachments %d"
+                         % (nd, cap, LIMITS["max_attachments"]))
     msg = email.message_from_bytes(data, policy=email.policy.default)
-    m = {"format": "eml", "headers": _hdr_model(msg.get_all), "auth": parse_auth(msg.get_all("authentication-results") or []),
-         "text": None, "html": None, "attachments": [], "warnings": [], "flags": []}
+    m = _new("eml")
+    m["headers"] = _hdr_model(msg.get_all)
+    m["auth"] = parse_auth(msg.get_all("authentication-results") or [])
     ct = msg.get_content_type()
     if ct in ("application/pkcs7-mime", "application/x-pkcs7-mime") or ct == "multipart/encrypted":
         m["flags"].append("encrypted")
@@ -99,7 +143,8 @@ def from_eml(data, depth=0):
         m["flags"].append("signed")
     if msg.defects:
         m["warnings"].extend("MIME defect: %s" % type(d).__name__ for d in msg.defects[:20])
-    for part in _leaves(msg):
+    lost = []
+    for part in _leaves(msg, lost):
         pct = part.get_content_type()
         disp = part.get_content_disposition()
         fname = part.get_filename()
@@ -125,46 +170,77 @@ def from_eml(data, depth=0):
             a["kind"] = "tnef"
         elif pct == "text/calendar":
             a["kind"] = "calendar"
-        m["attachments"].append(a)
+        _add_att(m, a)
+    for x in lost[:1]:
+        m["incomplete"].append(x)
     _nest(m, depth)
     return m
 
 
 def _nest(m, depth):
-    for a in m["attachments"]:
-        if a["kind"] not in ("embedded-message", "tnef", "msg") or not a["data"]:
+    for i, a in enumerate(m["attachments"], 1):
+        if a["kind"] in ("embedded-message", "tnef", "msg") and a["data"]:
+            if depth + 1 > MAX_DEPTH:
+                m["incomplete"].append("attachment %d: nested message not read (depth over %d)" % (i, MAX_DEPTH))
+                continue
+            try:
+                a["nested"] = parse_bytes(a["data"], depth + 1)
+            except (MailError, msgcfb.CfbError, tnef.TnefError, rtfbody.RtfError) as e:
+                m["incomplete"].append("attachment %d: nested %s not read: %s" % (i, a["kind"], e))
+    _bubble(m)
+
+
+def _bubble(m):
+    """Copy nested incomplete notes and warnings up, prefixed with the attachment index."""
+    for i, a in enumerate(m["attachments"], 1):
+        n = a.get("nested")
+        if not n:
             continue
-        if depth + 1 > MAX_DEPTH:
-            m["warnings"].append("nested message not read: depth over %d" % MAX_DEPTH)
-            continue
-        try:
-            a["nested"] = parse_bytes(a["data"], depth + 1)
-        except (MailError, msgcfb.CfbError, tnef.TnefError) as e:
-            m["warnings"].append("nested %s not read: %s" % (a["kind"], e))
+        m["incomplete"].extend("attachment %d/%s" % (i, x[len("attachment "):]) if x.startswith("attachment ")
+                               else "attachment %d: %s" % (i, x) for x in n["incomplete"])
+        m["warnings"].extend("attachment %d: %s" % (i, x) for x in n["warnings"][:20])
+
+
+def _rtf_body(m, raw):
+    """Fill text or html from a compressed RTF body when nothing better is stored."""
+    if not isinstance(raw, bytes) or m["html"] or m["text"]:
+        return
+    try:
+        rtf, w = rtfbody.decompress(raw)
+        b = rtfbody.to_body(rtf)
+    except rtfbody.RtfError as e:
+        m["incomplete"].append("RTF body not decoded: %s" % e)
+        return
+    m["warnings"].extend(w + b["warnings"])
+    if b["kind"] == "html":
+        m["html"] = b["content"]
+    else:
+        m["text"] = b["content"]
+    m["flags"].append("body-from-rtf")
 
 
 def from_tnef(data, depth=0):
-    r = tnef.parse(data)
+    r = tnef.parse(data, max_attachments=LIMITS["max_attachments"])
     mm = r["message"]
-    m = {"format": "tnef", "headers": {"subject": mailsafe.clean_text(mm.get("subject"), 1000),
-                                        "message_class": mm.get("message_class")},
-         "auth": [], "text": mm.get("body") if isinstance(mm.get("body"), str) else None,
-         "html": None, "attachments": [], "warnings": list(r["warnings"]), "flags": []}
+    m = _new("tnef")
+    m["headers"] = {"subject": mailsafe.clean_text(mm.get("subject"), 1000), "message_class": mm.get("message_class")}
+    m["text"] = mm.get("body") if isinstance(mm.get("body"), str) else None
+    m["warnings"] = list(r["warnings"])
+    m["incomplete"] = list(r["incomplete"])
     h = mm.get("body_html")
     if isinstance(h, bytes):
         m["html"] = h.decode("utf-8", "replace")
     elif isinstance(h, str):
         m["html"] = h
-    if mm.get("rtf_compressed") is not None:
-        m["flags"].append("rtf-body-not-decoded")
+    _rtf_body(m, mm.get("rtf_compressed"))
     for a in r["attachments"]:
         kind = "file"
         if a.get("embedded_tnef"):
             kind = "tnef"
         elif a.get("object_iid"):
             kind = "ole-object"
-        m["attachments"].append({"name": a["filename"], "content_type": a.get("mime"), "data": a["data"] or b"",
-                                 "inline": False, "content_id": None, "kind": kind, "nested": None})
+        _add_att(m, {"name": a["filename"], "content_type": a.get("mime"), "data": a["data"] or b"",
+                     "inline": False, "content_id": None, "kind": kind, "nested": None})
     _nest(m, depth)
     return m
 
@@ -176,8 +252,8 @@ def _s(v):
 def _msg_model(props, recips, atts, depth):
     P = msgcfb.NAMES
     g = lambda pid: props.get(pid)
-    m = {"format": "msg", "headers": {}, "auth": [], "text": _s(g(0x1000)), "html": None,
-         "attachments": [], "warnings": [], "flags": []}
+    m = _new("msg")
+    m["text"] = _s(g(0x1000))
     hdrs = _s(g(0x007D))
     if hdrs:
         hm = email.message_from_string(hdrs + "\n\n", policy=email.policy.default)
@@ -207,8 +283,7 @@ def _msg_model(props, recips, atts, depth):
         m["html"] = html.decode(enc, "replace")
     elif isinstance(html, str):
         m["html"] = html
-    if g(0x1009) is not None and not m["text"] and not m["html"]:
-        m["flags"].append("rtf-body-not-decoded")
+    _rtf_body(m, g(0x1009))
     if (h["message_class"] or "").upper().startswith("IPM.NOTE.SMIME"):
         m["flags"].append("smime")
     for a in atts:
@@ -222,11 +297,12 @@ def _msg_model(props, recips, atts, depth):
             item["name"] = item["name"] or "attached-message.msg"
             if isinstance(d["embedded"], tuple):
                 if depth + 1 > MAX_DEPTH:
-                    m["warnings"].append("nested message not read: depth over %d" % MAX_DEPTH)
+                    m["incomplete"].append("attachment %d: nested message not read (depth over %d)"
+                                           % (len(m["attachments"]) + 1, MAX_DEPTH))
                 else:
                     item["nested"] = _msg_model(*d["embedded"], depth + 1)
             else:
-                m["warnings"].append(str(d["embedded"]))
+                m["incomplete"].append("attachment %d: %s" % (len(m["attachments"]) + 1, d["embedded"]))
         elif isinstance(d, bytes):
             item["data"] = d
         elif method == 6:
@@ -237,7 +313,7 @@ def _msg_model(props, recips, atts, depth):
             m["warnings"].append("attachment %r is a link or reference, not stored in the file" % (name,))
         if (name or "").lower() == "winmail.dat" or item["content_type"] == "application/ms-tnef":
             item["kind"] = "tnef"
-        m["attachments"].append(item)
+        _add_att(m, item)
     _nest(m, depth)
     return m
 
@@ -248,6 +324,8 @@ def from_msg(data, depth=0):
 
 
 def parse_bytes(data, depth=0):
+    if depth == 0:
+        _count["n"] = 0
     kind = sniff(data)
     if kind == "msg":
         return from_msg(data, depth)

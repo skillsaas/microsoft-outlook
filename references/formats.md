@@ -1,7 +1,20 @@
 # Outlook file formats
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 What each file is, what the bundled readers decode, and what they leave out. Sources are
 Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, read 2026-10-13.
+
+## Support matrix (what this skill does with each format)
+| Format | Read by the scripts | Extract attachments | Tested on | Not covered |
+| :--- | :--- | :--- | :--- | :--- |
+| `.eml` (MIME) | yes, `inspect_mail.py` | yes | stdlib parser; synthetic fixtures | S/MIME decryption |
+| `.msg` | yes | yes | synthetic fixture cross-checked with olefile and extract-msg | real Outlook-saved files untested; named properties |
+| `winmail.dat` (TNEF) | yes | yes | 19 tnefparse sample files | MAPI property types outside MS-OXTNEF basics |
+| compressed RTF body (in .msg or TNEF) | yes since 0.1.1 (`body-from-rtf` flag) | n/a | spec-built streams; cross-check with compressed_rtf | RTF formatting, embedded pictures and objects |
+| `.ics`, `.vcs` | yes, `inspect_ics.py` | n/a | synthetic fixture | RRULE expansion, VTIMEZONE rule evaluation |
+| `.pst`, `.ost` | **no: orientation only** | no | nothing; readpst was run only on a non-PST file | everything; use classic Outlook or readpst |
+| `.oft` | as `.msg` | as `.msg` | not tested | |
 
 ## Which file is which
 Detect by content, not extension; `inspect_mail.py` does this.
@@ -34,8 +47,11 @@ Detect by content, not extension; `inspect_mail.py` does this.
   `0x7FFE` hidden.
 - A sent-from-Outlook .msg often has no transport headers, so there are no
   `Authentication-Results` to read; say so.
-- **Not decoded here**: compressed RTF (`0x1009`, MS-OXRTFCP) when it is the only body (the
-  inspector flags `rtf-body-not-decoded`), named properties, OLE attachment contents,
+- **Compressed RTF** (`0x1009`, MS-OXRTFCP) is decoded when it is the only body (0.1.1,
+  `rtfbody.py`): LZFu decompression with the spec's CRC check, then HTML is taken back out of
+  RTF that wraps HTML (`\fromhtml1`, MS-OXRTFEX) so links are checked, or plain text from other
+  RTF. The report carries the `body-from-rtf` flag.
+- **Not decoded here**: named properties, OLE attachment contents,
   S/MIME (`IPM.Note.SMIME*`, flagged), encrypted IRM messages, and .msg files over the size caps.
 - Hardening in `msgcfb.py`: signature and header checks, every sector chain checked for loops and
   out-of-range sectors, directory walk with a visited set, stream size cap (64 MB), nesting depth
@@ -64,8 +80,21 @@ Detect by content, not extension; `inspect_mail.py` does this.
 - Attachments start at `attAttachRendData`; the name is in `attAttachTitle` (often 8.3), the
   long name in `attAttachment` MAPI properties (`0x3707`), the bytes in `attAttachData` or in
   `0x3701` (an object type with a 16-byte interface id first, for embedded messages and OLE).
-- `tnef.py` reports a checksum mismatch or truncated tail as a warning and keeps going; a length
-  that runs past the data is exit 2.
+- `tnef.py` reports a checksum mismatch as a warning and keeps going. A truncated tail or an
+  unreadable MAPI property block marks the parse incomplete (0.1.1: no longer a quiet ok); a
+  length that runs past the data is exit 2.
+
+## Caps and partial parses (0.1.1)
+| Cap | Default | When reached |
+| :--- | :--- | :--- |
+| Input size | 50 MB inspect, 150 MB extract (`--max-bytes`) | exit 3 |
+| Attachments, nested included | 500 (`--max-attachments`) | exit 3, nothing written |
+| MIME boundaries declared | 2,000 | exit 3, before parsing |
+| MIME nesting | 50 levels | deeper parts unread: `complete: false` |
+| Nested messages (.msg in .msg, rfc822, TNEF) | 4 levels | deeper ones unread: `complete: false` |
+| Wall clock | 60 s inspect, 120 s extract (`--timeout`) | exit 3 |
+A partial parse is never reported as clean: inspect adds a `parse-incomplete` risk and lists
+what was missed in `incomplete`; extract writes nothing unless `--allow-incomplete`.
 
 ## Reader comparison (tested on the box, 2026-10-13)
 | Check | Result |
@@ -75,7 +104,8 @@ Detect by content, not extension; `inspect_mail.py` does this.
 | Real .msg files saved by Outlook | Not tested: none available on the box. Fixture is synthetic |
 | Python `email` on `.eml` | Standard library behavior; fixtures cover nested `message/rfc822`, TNEF inside MIME, RFC 2231 names |
 
-## .pst and .ost
+## .pst and .ost (orientation only)
+This section is orientation, not a tested procedure: nothing here was run on a real .pst.
 - MS-PST describes the format (NDB layer, LTP heap and tables, messaging layer). No reader is
   bundled: a .pst can hold years of mail and is better opened by a tool built for it.
 - Options, in order: classic Outlook (File > Open & Export > Open Outlook Data File, or Import/

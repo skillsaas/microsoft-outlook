@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.1.1 (2026-10-13)
+Round 1 review fixes (12 reviews; synthesis in the feedback folder). Not published.
+- **Partial parses are never clean (H1).** MIME nesting past 50 levels, nested messages past 4,
+  broken nested items, unreadable TNEF MAPI blocks, truncated TNEF and failed RTF bodies now set
+  `complete: false`, list each gap in `incomplete` (copied up from nested messages), and add a
+  medium `parse-incomplete` risk first in `risks`. `--strict` makes it exit 1.
+  `extract_attachments.py` fails closed: nothing written, exit 1, unless `--allow-incomplete`.
+- **Attachment count cap for .eml and .msg** (was TNEF only): 500 in total, nested included,
+  `--max-attachments`; over it is exit 3 with nothing written. More than 2,000 declared MIME
+  boundaries are refused before parsing, and a RecursionError is a refusal, not a traceback.
+- **Wall-clock limit** `--timeout` on all three scripts (60 s inspect, 120 s extract): exit 3.
+- **One meaning per exit code** and a JSON `status` field (`ok`, `incomplete`,
+  `risk-threshold`, `risky-skipped`, `error`, `refused`). Usage errors are JSON under `--json`.
+  `--version` on every script. The mailsafe docstring now matches SKILL.md.
+- **Fixed JSON schema** for inspect_mail (`schema: microsoft-outlook/inspect-mail/1`), with
+  `not_checked` and `complete`; documented in `references/json-output.md` with risk semantics.
+- Risks: remote images reported (`html-remote-images`); `.html`/`.svg` attachments high, so
+  extraction skips them by default; `.dat`, TNEF and attached messages are containers (medium);
+  percent-encoded hosts flagged high and decoded before comparison; the extension of a very
+  long padded name is now checked on the full name and kept when a saved name is shortened.
+- Compressed RTF bodies decoded (`rtfbody.py`, MS-OXRTFCP with CRC check, HTML de-encapsulation
+  per MS-OXRTFEX); flag `body-from-rtf`.
+- Windows time zone names converted with the CLDR windowsZones table (142 zones, Unicode
+  License v3); DST gap and overlap times flagged.
+- Symlinked output parents (macOS `/tmp`, some home folders) are resolved, not refused. The
+  manifest is written 0600. A short Compound File now reports truncation, not a bad signature.
+- Docs: SKILL.md first screen is a task router with one merged safety list (approval bound to
+  one action, never retry a write blindly, use an existing Graph connector); graph.md gains auth
+  (device code, consent, Conditional Access), a Limits table and HTTP recipes; addins.md gains a
+  typed OnMessageSend handler (type-checked) and corrects `sendModeOverride` (an
+  `event.completed` option, promptUser only); formats.md gains a support matrix and caps table;
+  .pst marked orientation only; last-verified dates on every reference.
+- Tests: 31 to 40, including a SKILL.md frontmatter check.
+
 ## 0.1.0 (2026-10-13)
 First version. Not published.
 - SKILL.md router: decision guide with a first command per task, never-do and ask-first lists,

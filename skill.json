@@ -1,6 +1,6 @@
 {
   "name": "microsoft-outlook",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts only: never sends mail itself.",
   "entry": "SKILL.md",
   "skill_md_url": "https://raw.githubusercontent.com/skillsaas/microsoft-outlook/main/SKILL.md",
@@ -12,7 +12,11 @@
   "requires": {
     "python": ">=3.9",
     "pip": [],
-    "pip_optional_for_tests": ["olefile", "extract-msg"]
+    "pip_optional_for_tests": [
+      "olefile",
+      "extract-msg",
+      "compressed_rtf"
+    ]
   },
   "published": {
     "npm": false,
@@ -23,7 +27,9 @@
       "scripts/*.py (tests/smoke_test.py)",
       ".msg fixture cross-read by olefile 0.47 and extract-msg 0.56.1",
       "tnef.py vs tnefparse 1.4.0 on its 19 sample files",
-      "readpst 0.6.76 runs inside the documented bwrap command (no real .pst)"
+      "readpst 0.6.76 runs inside the documented bwrap command (no real .pst)",
+      "rtfbody.py vs compressed_rtf 1.0.7 on random and repetitive data",
+      "addins.md OnMessageSend example type-checked with TypeScript 5.9.3 --strict against @types/office-js 1.0.611"
     ],
     "documented_not_executed": [
       "references/graph.md, calendar.md, rules-signatures.md, search.md (Microsoft Learn and Support, read 2026-10-13)",
@@ -54,6 +60,20 @@
     "executes_attachments": false,
     "writes": "extract_attachments.py only, into a new folder"
   },
-  "keywords": ["outlook", "email", "msg", "eml", "tnef", "winmail.dat", "ics", "pst", "microsoft-graph", "office-js", "phishing", "agent-skills", "skill-md"],
+  "keywords": [
+    "outlook",
+    "email",
+    "msg",
+    "eml",
+    "tnef",
+    "winmail.dat",
+    "ics",
+    "pst",
+    "microsoft-graph",
+    "office-js",
+    "phishing",
+    "agent-skills",
+    "skill-md"
+  ],
   "selfcheck": "python tests/smoke_test.py"
 }

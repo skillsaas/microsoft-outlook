@@ -1,5 +1,7 @@
 # Search syntax: Outlook client (AQS) and Graph (KQL)
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 Two different languages that look alike. Say which one you are giving.
 
 ## In Outlook (search box)
@@ -10,7 +12,7 @@ shares the web codebase (expected to behave the same; not tested here):
 | `from:` `to:` `cc:` `bcc:` `participants:` | `from:JerriFrye` |
 | `subject:` | `subject:report`, `subject:(product plan)` both words, `subject:"product plan"` phrase |
 | `body:` (or `content:`) | `body:invoice` |
-| `sent:` `received:` | `received:01/01/2026`, a range with `..`, or `today`, `yesterday`, `this week`, `last week`, `past month`. Dates are MM/DD/YYYY |
+| `sent:` `received:` | `received:01/01/2026`, a range with `..`, or `today`, `yesterday`, `this week`, `last week`, `past month`. Dates are MM/DD/YYYY in US English; the client may read them in the user's locale. For anything automated, prefer Graph `$filter` with ISO 8601 UTC times |
 | `category:` | `category:reports` |
 | `hasattachment:yes` / `no` | `report hasattachment:yes` |
 | `isflagged:yes` / `no` | |

@@ -1,5 +1,7 @@
 # Outlook add-ins (Office.js), new vs classic, VBA
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 API names and requirement sets below were checked against `@types/office-js` 1.0.611
 (2026-10-13). No add-in was built or run here.
 
@@ -35,8 +37,40 @@ solution has no replacement, classic Outlook still runs it.
 ## Event-based activation and Smart Alerts
 - Handlers run without the task pane on events such as `OnNewMessageCompose` (set signatures,
   templates) and `OnMessageSend` (check before sending: missing attachment, external recipients,
-  classification). `sendModeOverride` (Mailbox 1.14) changes the send mode at run time.
+  classification). Smart Alerts (`OnMessageSend`) is Mailbox 1.12.
+- `sendModeOverride` is not a manifest setting: it is an option of `event.completed(...)`
+  (`SmartAlertsEventCompletedOptions`, Mailbox 1.14), and the only value today is
+  `Office.MailboxEnums.SendModeOverride.PromptUser` ("promptUser"), which offers **Send Anyway**.
+  The manifest's `SendMode` (prompt user, soft block, block) sets the default.
 - Use `OnMessageSend` to warn, not to silently rewrite the message.
+
+Typed handler (type-checked with TypeScript 5.9 `--strict` against @types/office-js 1.0.611; not
+run in Outlook). Register the function name in the manifest's event mapping:
+```ts
+function onMessageSendHandler(event: Office.MailboxEvent): void {
+  const item = Office.context.mailbox.item as Office.MessageCompose;
+  item.to.getAsync({ asyncContext: event }, (result: Office.AsyncResult<Office.EmailAddressDetails[]>) => {
+    const ev = result.asyncContext as Office.MailboxEvent;
+    if (result.status !== Office.AsyncResultStatus.Succeeded) {
+      ev.completed({ allowEvent: true }); // never block mail because the check itself failed
+      return;
+    }
+    const external = result.value.filter(r => !r.emailAddress.toLowerCase().endsWith("@contoso.com"));
+    if (external.length === 0) {
+      ev.completed({ allowEvent: true });
+      return;
+    }
+    ev.completed({
+      allowEvent: false,
+      errorMessage: "This message goes to " + external.length + " external recipient(s). Check before sending.",
+      sendModeOverride: Office.MailboxEnums.SendModeOverride.PromptUser,
+    });
+  });
+}
+Office.actions.associate("onMessageSendHandler", onMessageSendHandler);
+```
+- Type definitions prove a name exists, not that a client supports it: check the requirement
+  set with `Office.context.requirements.isSetSupported("Mailbox", "1.14")` at run time.
 
 ## Authentication
 - Recommended for delegated Graph access from an add-in: MSAL with nested app authentication
@@ -54,6 +88,7 @@ solution has no replacement, classic Outlook still runs it.
   a received email.
 
 ## Sources
+- OnMessageSend and Smart Alerts: https://learn.microsoft.com/en-us/office/dev/add-ins/outlook/onmessagesend-onappointmentsend-events
 - New Outlook add-in support: https://learn.microsoft.com/en-us/office/dev/add-ins/outlook/one-outlook
 - Overview of new Outlook (COM not supported): https://learn.microsoft.com/en-us/microsoft-365-apps/outlook/overview-new-outlook-windows
 - VBA alternatives: https://learn.microsoft.com/en-us/microsoft-365-apps/outlook/get-started/vba-alternatives

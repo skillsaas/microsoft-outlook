@@ -18,7 +18,7 @@ without ever sending mail on its own.
 - you need AQS (Outlook search box) or KQL (Graph `$search`) syntax.
 
 ## Install
-Planned, not yet published (v0.1.0 is under review):
+Planned, not yet published (v0.1.1 is under review):
 ```bash
 npx @skillsaas/cli add microsoft-outlook      # planned
 npx skills add skillsaas/microsoft-outlook    # planned
@@ -36,12 +36,13 @@ Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python 
 | `scripts/inspect_mail.py` | Read-only report for .msg, .eml, winmail.dat: headers, auth, links, HTML traps, attachments, risks |
 | `scripts/extract_attachments.py` | Save attachments (and nested ones) into a new folder with safe names; risky ones skipped or quarantined |
 | `scripts/inspect_ics.py` | Read-only report for invites: method, times with zones, recurrence, links, alarms |
-| `scripts/mailsafe.py`, `mailparse.py`, `msgcfb.py`, `tnef.py` | Helpers: text and link checks, the .msg (MS-CFB/MS-OXMSG) and TNEF (MS-OXTNEF) readers |
+| `scripts/mailsafe.py`, `mailparse.py`, `msgcfb.py`, `tnef.py`, `rtfbody.py` | Helpers: text and link checks, the .msg (MS-CFB/MS-OXMSG), TNEF (MS-OXTNEF) and compressed RTF (MS-OXRTFCP) readers |
+| `scripts/windows_zones.json`, `scripts/LICENSE-CLDR.txt` | CLDR Windows-to-IANA zone table and its Unicode License v3 |
 | `tests/smoke_test.py`, `tests/make_fixtures.py` | Tests and the synthetic fixture builder |
 | `SECURITY.md` | Threat model and how to report a problem |
 
 ## Status and maintenance
-Version 0.1.0, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.1, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

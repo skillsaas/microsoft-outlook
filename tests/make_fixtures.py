@@ -169,6 +169,25 @@ def msg_storage(spec, header_len=24, top=False):
     return st
 
 
+def lzfu_literal(raw):
+    """Compressed RTF (MS-OXRTFCP) using only literal tokens plus the end marker: valid LZFu
+    that any conforming reader must decompress back to raw."""
+    out, i, w = bytearray(), 0, 207
+    while True:
+        chunk = raw[i:i + 8]
+        i += len(chunk)
+        w = (w + len(chunk)) & 0xFFF
+        if len(chunk) < 8:
+            out.append(1 << len(chunk))
+            out += chunk + struct.pack(">H", w << 4)
+            break
+        out.append(0)
+        out += chunk
+    import rtfbody
+    crc = rtfbody.crc32(bytes(out))
+    return struct.pack("<IIII", len(out) + 12, len(raw), 0x75465A4C, crc) + bytes(out)
+
+
 def build_msg():
     inner = {"subject": "Fwd: original order", "sender_name": "Vendor Billing", "sender": "billing@vendor.example",
              "body": "Inner message body.", "attachments": [{"name": "order.csv", "data": b"id,qty\n1,2\n", "mime": "text/csv"}]}

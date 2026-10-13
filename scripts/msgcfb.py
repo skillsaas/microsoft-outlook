@@ -20,8 +20,10 @@ class CfbError(Exception):
 
 class Cfb:
     def __init__(self, data, max_stream=64 * 1024 * 1024):
-        if len(data) < 512 or data[:8] != SIG:
+        if data[:8] != SIG:
             raise CfbError("not a Compound File (no D0CF11E0 signature)")
+        if len(data) < 512:
+            raise CfbError("Compound File truncated: %d bytes, shorter than the 512-byte header" % len(data))
         self.d = data
         self.max_stream = max_stream
         h = struct.unpack_from("<HHHHHH", data, 0x18)

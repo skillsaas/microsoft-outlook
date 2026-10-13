@@ -1,5 +1,7 @@
 # Recipes: four worked examples (real output from the test fixtures)
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 Outputs below were produced on the box (Python 3.13.5, Linux) from `tests/fixtures/`, built by
 `tests/make_fixtures.py`. JSON is shortened with `...` where marked.
 
@@ -89,10 +91,9 @@ JSON for a converted time:
 ```
 and for a Windows zone name:
 ```json
-{"value": "20261014T100000", "tzid": "Pakistan Standard Time", "all_day": false, "converted": null, "note": "TZID is not an IANA zone (Windows name?): not converted"}
+{"value": "20261014T100000", "tzid": "Pakistan Standard Time", "all_day": false, "iana": "Asia/Karachi", "note": "Windows zone mapped to Asia/Karachi via CLDR; the file's VTIMEZONE rules were not evaluated", "converted": "2026-10-14T10:00:00+05:00"}
 ```
-"Pakistan Standard Time" maps to `Asia/Karachi` in CLDR `windowsZones.xml`, so event 1 is
-10:00 PKT every Wednesday. Report the file link and the PROCEDURE alarm as suspicious; do not
+So event 1 is 10:00 PKT every Wednesday. Report the file link and the PROCEDURE alarm as suspicious; do not
 accept the meeting unless the user says so.
 
 ## Live mailbox: draft a reply, send only on approval (documented, not run)

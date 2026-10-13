@@ -4,6 +4,7 @@ Never opens, previews or runs a saved file. Standard library only.
 
 Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include-risky]
                                      [--skip-inline] [--only 1,2/1] [--max-file N] [--max-total N]
+                                     [--max-attachments N] [--timeout S] [--allow-incomplete]
 
 - OUTDIR must not exist. Files are written into a private temp folder beside it (mode 0700, files
   0600, no execute bit) and the folder is renamed into place only after every write succeeded.
@@ -14,12 +15,16 @@ Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include
   does not run them.
 - Attachments of nested messages (attached .msg or .eml, winmail.dat) are saved too, numbered
   by path ("2/1" is attachment 1 of attachment 2).
-- manifest.json lists every attachment: index, original and saved name, size, SHA-256, risk.
+- manifest.json (mode 0600) lists every attachment: index, original and saved name, size,
+  SHA-256, risk.
+- Fails closed on a partial parse: if any part of the file could not be read (depth cap, a broken
+  nested message, unreadable TNEF properties), nothing is written and the exit is 1 with
+  status "incomplete". --allow-incomplete saves what was read and still reports what was not.
 
-Exit codes: 0 all saved; 1 saved, but some were skipped as risky (tell the user which);
-2 not an email file or corrupt; 3 refused (OUTDIR exists, a symlink in the path, size caps).
+Exit codes (JSON "status" in quotes): 0 "ok" (all saved); 1 "risky-skipped" (saved, but some were skipped
+as high risk: tell the user which) or "incomplete"; 2 "error" (not an email file or corrupt);
+3 "refused" (OUTDIR exists, a symlink in the path, size, count or time caps).
 """
-import argparse
 import json
 import os
 import shutil
@@ -100,13 +105,14 @@ def check_outdir(path):
     parent = os.path.dirname(out)
     if not os.path.isdir(parent):
         raise FileNotFoundError("parent folder does not exist: %s" % parent)
-    if os.path.realpath(parent) != parent:
-        raise PermissionError("the output path goes through a symlink; give a real path")
-    return out, parent
+    # A symlinked parent is fine (macOS /tmp and many home folders are symlinks): resolve it once
+    # and write under the real path. OUTDIR itself must not exist, so it cannot be a symlink.
+    real = os.path.realpath(parent)
+    return os.path.join(real, os.path.basename(out)), real
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = mailsafe.ArgParser(description=__doc__.split("\n")[0])
     ap.add_argument("file")
     ap.add_argument("outdir")
     ap.add_argument("--json", action="store_true")
@@ -117,7 +123,13 @@ def main(argv=None):
     ap.add_argument("--max-file", type=int, default=100 * 1024 * 1024)
     ap.add_argument("--max-total", type=int, default=500 * 1024 * 1024)
     ap.add_argument("--max-bytes", type=int, default=150 * 1024 * 1024, help="input file cap")
+    ap.add_argument("--max-attachments", type=int, default=500, help="refuse above this many, nested included")
+    ap.add_argument("--timeout", type=float, default=120, help="wall-clock seconds, 0 for none")
+    ap.add_argument("--allow-incomplete", action="store_true", help="save what was read from a partial parse")
+    ap.add_argument("--version", action="version", version=mailsafe.VERSION)
     a = ap.parse_args(argv)
+    mailsafe.watchdog(a.timeout, a.json)
+    mailparse.LIMITS["max_attachments"] = a.max_attachments
     try:
         data = mailsafe.read_capped(a.file, a.max_bytes)
     except OverflowError as e:
@@ -132,10 +144,23 @@ def main(argv=None):
         return mailsafe.fail(a.json, 2, str(e))
     try:
         m = mailparse.parse_bytes(data)
+    except mailparse.LimitError as e:
+        return mailsafe.fail(a.json, 3, str(e))
     except (mailparse.MailError, msgcfb.CfbError, tnef.TnefError) as e:
         return mailsafe.fail(a.json, 2, str(e))
+    except RecursionError:
+        return mailsafe.fail(a.json, 3, "nesting too deep to read safely")
     except Exception as e:
         return mailsafe.fail(a.json, 2, "could not parse: %s" % type(e).__name__)
+    inc = m.get("incomplete") or []
+    if inc and not a.allow_incomplete:
+        if a.json:
+            print(json.dumps({"ok": False, "status": "incomplete", "error": "parse incomplete: nothing was saved",
+                              "incomplete": inc[:50], "hint": "inspect_mail.py shows what was read; "
+                              "--allow-incomplete saves it anyway"}, indent=2, ensure_ascii=False))
+        else:
+            print("error: parse incomplete, nothing was saved:\n  " + "\n  ".join(inc[:20]), file=sys.stderr)
+        return 1
     try:
         items = plan(m, a)
     except OverflowError as e:
@@ -150,8 +175,11 @@ def main(argv=None):
                 with os.fdopen(fd, "wb") as f:
                     f.write(it["_data"])
             man = [{k: v for k, v in i.items() if k != "_data"} for i in items]
-            with open(os.path.join(tmp, "manifest.json"), "x", encoding="utf-8") as f:
-                json.dump({"source": os.path.basename(a.file), "attachments": man}, f, indent=2, ensure_ascii=False)
+            fd = os.open(os.path.join(tmp, "manifest.json"),
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"source": os.path.basename(a.file), "complete": not inc, "incomplete": inc,
+                           "attachments": man}, f, indent=2, ensure_ascii=False)
             if os.path.lexists(out):
                 raise FileExistsError("OUTDIR appeared while writing")
             os.rename(tmp, out)
@@ -161,7 +189,8 @@ def main(argv=None):
     for i in items:
         i.pop("_data", None)
     risky = [i for i in items if i["skipped"] and i["skipped"].startswith("high risk")]
-    r = {"ok": True, "error": None, "dry_run": a.dry_run, "outdir": None if a.dry_run or not saved else out,
+    r = {"ok": True, "status": "risky-skipped" if risky else ("incomplete" if inc else "ok"), "error": None,
+         "complete": not inc, "incomplete": inc[:50], "dry_run": a.dry_run, "outdir": None if a.dry_run or not saved else out,
          "saved": len(saved), "skipped_risky": len(risky), "attachments": items,
          "note": "Saved files were not opened. Scan them before anyone opens them."}
 
@@ -173,7 +202,7 @@ def main(argv=None):
                                                      ("  skipped: " + i["skipped"]) if i["skipped"] else ""))
         return "\n".join(lines)
     mailsafe.emit(r, a.json, human)
-    return 1 if risky else 0
+    return 1 if (risky or inc) else 0
 
 
 if __name__ == "__main__":

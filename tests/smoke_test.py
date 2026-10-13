@@ -27,6 +27,7 @@ SCRIPTS = os.path.join(ROOT, "scripts")
 sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import make_fixtures  # noqa: E402
+import mailsafe  # noqa: E402
 
 VERBOSE = "-v" in sys.argv
 TMP = tempfile.mkdtemp(prefix="outlook-skill-test-")
@@ -288,14 +289,19 @@ def _():
     assert ours == theirs and len(files) >= 10, (len(files), [f for f, a, b in zip(files, ours, theirs) if a != b])
 
 
-@test("docs: SKILL.md sample output matches the script")
+@test("docs: SKILL.md sample JSON matches the script's real output")
 def _():
     md = open(os.path.join(ROOT, "SKILL.md"), encoding="utf-8").read()
-    c, _, out = run("inspect_mail.py", FX["phish.eml"], "--body", "0")
-    for line in ("subject: Action required: account on hold", "auth (top): spf=softfail dkim=none dmarc=fail",
-                 "[1] invoice.pdf.exe (file, 7 bytes) risk=high double-extension,outlook-blocked-type",
-                 "high html-form 1 form(s); mail should not ask for passwords"):
-        assert line in md and line in out, line
+    block = re.search(r"```json\n(.*?)```", md, re.S).group(1)
+    c, r, _ = run("inspect_mail.py", FX["phish.eml"], "--json")
+    shown = json.loads(block.replace(', ..."', '"'))
+    for k in ("status", "complete", "incomplete", "overall_risk"):
+        assert shown[k] == r[k], k
+    assert shown["risks"][0] in r["risks"]
+    a = shown["attachments"][0]
+    real = [x for x in r["attachments"] if x["index"] == a["index"]][0]
+    assert all(real[k] == v for k, v in a.items()), real
+    assert any(n.startswith(shown["not_checked"][0].rstrip(".")[:40]) for n in r["not_checked"])
 
 
 # ---------------- extract_attachments ----------------
@@ -333,7 +339,7 @@ def _():
     assert not any("\u202e" in f for f in files)
 
 
-@test("extract: refuses existing OUTDIR and symlinked parent (exit 3)")
+@test("extract: refuses existing OUTDIR (exit 3); a symlinked parent (macOS /tmp) is resolved and allowed")
 def _():
     os.makedirs(os.path.join(TMP, "exists"), exist_ok=True)
     c, r, _ = run("extract_attachments.py", FX["clean.eml"], os.path.join(TMP, "exists"), "--json")
@@ -343,8 +349,11 @@ def _():
     link = os.path.join(TMP, "linkdir")
     if not os.path.lexists(link):
         os.symlink(real, link)
-    c, r, _ = run("extract_attachments.py", FX["clean.eml"], os.path.join(link, "o"), "--json")
-    assert c == 3 and not os.listdir(real)
+    c, r, _ = run("extract_attachments.py", FX["phish.eml"], os.path.join(link, "o"), "--json", "--include-risky")
+    assert c == 0 and r["outdir"] == os.path.join(os.path.realpath(real), "o"), r
+    assert os.listdir(os.path.join(real, "o"))
+    m = os.path.join(real, "o", "manifest.json")
+    assert stat.S_IMODE(os.stat(m).st_mode) == 0o600
 
 
 @test("extract: --max-total refuses and leaves no folder")
@@ -362,6 +371,159 @@ def _():
     assert open(os.path.join(out, "order.csv"), "rb").read() == b"id,qty\n1,2\n"
 
 
+@test("v0.1.1 H1: MIME nesting past the cap is reported incomplete, never a clean ok; extract fails closed")
+def _():
+    inner = b"Content-Type: text/plain\r\n\r\nsecret payload https://deep.example/x\r\n"
+    for i in range(60):
+        b = b"b%d" % i
+        inner = (b"Content-Type: multipart/mixed; boundary=" + b + b"\r\n\r\n--" + b + b"\r\n" + inner +
+                 b"\r\n--" + b + b"--\r\n")
+    p = write("deep.eml", b"From: a@example.com\r\nSubject: deep\r\nMIME-Version: 1.0\r\n" + inner)
+    c, r, _ = run("inspect_mail.py", p, "--json")
+    assert c == 0 and r["complete"] is False and r["status"] == "incomplete" and r["incomplete"], r.get("incomplete")
+    assert r["risks"][0]["kind"] == "parse-incomplete" and r["overall_risk"] in ("medium", "high")
+    assert run("inspect_mail.py", p, "--json", "--strict")[0] == 1
+    c, r, _ = run("extract_attachments.py", p, os.path.join(TMP, "deep-out"), "--json")
+    assert c == 1 and r["status"] == "incomplete" and not os.path.exists(os.path.join(TMP, "deep-out"))
+
+
+@test("v0.1.1: attachment count cap refuses (exit 3) for .eml; huge boundary counts refused before parsing")
+def _():
+    parts = b"".join(b"--B\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; "
+                     b"filename=f%d.bin\r\n\r\nx\r\n" % i for i in range(30))
+    p = write("many.eml", b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B"
+              b"\r\n\r\n" + parts + b"--B--\r\n")
+    c, r, _ = run("extract_attachments.py", p, os.path.join(TMP, "many-out"), "--max-attachments", "20", "--json")
+    assert c == 3 and r["status"] == "refused" and not os.path.exists(os.path.join(TMP, "many-out")), r
+    assert run("inspect_mail.py", p, "--json", "--max-attachments", "20")[0] == 3
+    assert run("inspect_mail.py", p, "--json")[0] == 0
+    big = b"".join(b"--B\r\nContent-Disposition: attachment; filename=f%d\r\n\r\nx\r\n" % i for i in range(6000))
+    big = write("big.eml", b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+                + big + b"--B--\r\n")
+    c, r, _ = run("extract_attachments.py", big, os.path.join(TMP, "big-out"), "--json")
+    assert c == 3 and not os.path.exists(os.path.join(TMP, "big-out")), r
+    q = write("bounds.eml", b"From: a@example.com\r\n\r\n" + b"boundary=x\r\n" * 2100)
+    assert run("inspect_mail.py", q, "--json")[0] == 3
+
+
+@test("v0.1.1: --timeout refuses with exit 3; usage errors are JSON under --json; --version")
+def _():
+    parts = b"".join(b"--B\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=f%d.txt"
+                     b"\r\n\r\n%s\r\n" % (i, b"y" * 2000) for i in range(400))
+    p = write("slow.eml", b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B"
+              b"\r\n\r\n" + parts + b"--B--\r\n")
+    c, r, _ = run("inspect_mail.py", p, "--json", "--timeout", "0.01")
+    assert c == 3 and "time limit" in r["error"] and r["status"] == "refused", r
+    c, r, _ = run("inspect_mail.py", p, "--json", "--fail-on-risk", "bogus")
+    assert c == 2 and r["status"] == "error" and r["error"].startswith("usage"), r
+    for sc in ("inspect_mail.py", "extract_attachments.py", "inspect_ics.py"):
+        cp = subprocess.run([sys.executable, os.path.join(SCRIPTS, sc), "--version"], capture_output=True, text=True)
+        assert cp.returncode == 0 and cp.stdout.strip() == mailsafe.VERSION, (sc, cp.stdout)
+
+
+@test("v0.1.1: JSON has schema, status, complete, not_checked; remote images are a risk")
+def _():
+    c, r, _ = run("inspect_mail.py", FX["phish.eml"], "--json")
+    for k in ("schema", "status", "complete", "incomplete", "not_checked", "risks", "overall_risk"):
+        assert k in r, k
+    assert r["schema"] == "microsoft-outlook/inspect-mail/1" and isinstance(r["not_checked"], list)
+    c, r2, _ = run("inspect_mail.py", FX["phish.eml"], "--json", "--fail-on-risk", "medium")
+    assert c == 1 and r2["status"] == "risk-threshold"
+    html = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: text/html\r\n\r\n"
+            b"<p>hi<img src=\"https://t.example/p.gif\" width=1 height=1></p>")
+    c, r, _ = run("inspect_mail.py", write("img.eml", html), "--json")
+    assert "html-remote-images" in kinds(r) and "html-tracking-pixels" in kinds(r)
+
+
+@test("v0.1.1 unit: risk rules (long names keep extension, .dat/TNEF containers, html high, %-host)")
+def _():
+    long = "invoice" + " " * 400 + "x" * 300 + ".exe"
+    assert mailsafe.attachment_risk(long)[0] == "high"
+    sf = mailsafe.safe_filename("a" * 400 + ".exe")
+    assert sf.endswith(".exe") and len(sf.encode()) <= 150
+    assert mailsafe.attachment_risk("winmail.dat")[0] == "medium"
+    assert mailsafe.attachment_risk("x.bin", "application/ms-tnef")[0] == "medium"
+    assert mailsafe.attachment_risk("Payment.html")[0] == "high"
+    a = mailsafe.analyze_url("https://login.example.com%2F@evil.example/")
+    assert a["risk"] == "high"
+    a = mailsafe.analyze_url("https://paypal.com%2Eevil.example/")
+    assert "encoded-chars-in-host" in a["reasons"] and a["risk"] == "high", a
+
+
+@test("v0.1.1 unit: short CFB error names truncation; TNEF MAPI failure is incomplete, not a soft ok")
+def _():
+    import msgcfb, tnef, mailparse
+    try:
+        msgcfb.Cfb(msgcfb.SIG + b"\0" * 20)
+        raise AssertionError("no error")
+    except msgcfb.CfbError as e:
+        assert "truncated" in str(e)
+    data = open(FX["winmail.dat"], "rb").read()
+    # corrupt the first MAPI property block (attMsgProps 0x00069003) length so its parse fails
+    i = data.find(struct.pack("<I", 0x00069003))
+    if i > 0:
+        ln = struct.unpack_from("<I", data, i + 4)[0]
+        body = data[i + 8:i + 8 + ln]
+        bad = struct.pack("<I", 0xFFFF) + body[4:]
+        ck = sum(bad) & 0xFFFF
+        data2 = data[:i + 8] + bad + struct.pack("<H", ck) + data[i + 10 + ln:]
+        m = mailparse.parse_bytes(data2)
+        assert m["incomplete"] and "properties" in m["incomplete"][0], m["incomplete"]
+
+
+@test("v0.1.1 unit: compressed RTF (MS-OXRTFCP) round trip and HTML de-encapsulation (MS-OXRTFEX)")
+def _():
+    import rtfbody
+    rtf = (b"{\\rtf1\\ansi\\ansicpg1252\\fromhtml1 {\\*\\htmltag19 <html>}{\\*\\htmltag84 <a href=\"https://e.example/\">}"
+           b"\\htmlrtf {\\htmlrtf0 Caf\\'e9 \\u8364?{\\*\\htmltag92 </a>}\\htmlrtf }\\htmlrtf0 {\\*\\htmltag27 </html>}}")
+    comp = make_fixtures.lzfu_literal(rtf)
+    out, w = rtfbody.decompress(comp)
+    assert out == rtf and not w, w
+    b = rtfbody.to_body(out)
+    assert b["kind"] == "html" and b["content"] == '<html><a href="https://e.example/">Caf\u00e9 \u20ac</a></html>', b
+    # a back-reference into the preloaded dictionary: "{\\rtf1" sits at offset 0, length 6
+    end = struct.pack(">H", ((207 + 8) & 0xFFF) << 4)
+    body = bytes([0b00001001]) + struct.pack(">H", (0 << 4) | (6 - 2)) + b"x}" + end
+    data = struct.pack("<IIII", len(body) + 12, 8, rtfbody.LZFU, rtfbody.crc32(body)) + body
+    out, w = rtfbody.decompress(data)
+    assert out == b"{\\rtf1x}" and not w, (out, w)
+    try:
+        rtfbody.decompress(b"\0" * 8)
+        raise AssertionError("no error")
+    except rtfbody.RtfError:
+        pass
+    if os.environ.get("XCHECK_PYTHON"):
+        code = ("import sys,compressed_rtf;sys.path.insert(0,%r);import rtfbody,os;"
+                "d=os.urandom(5000)+b'abcabcabc'*300;assert rtfbody.decompress(compressed_rtf.compress(d))==(d,[]);"
+                "print('ok')" % SCRIPTS)
+        cp = subprocess.run([os.environ["XCHECK_PYTHON"], "-c", code], capture_output=True, text=True)
+        assert cp.stdout.strip() == "ok", cp.stderr
+
+
+@test("v0.1.1 unit: Windows zone table and DST gap / overlap flags")
+def _():
+    import inspect_ics, zoneinfo
+    assert inspect_ics.windows_to_iana("Pakistan Standard Time") == "Asia/Karachi"
+    assert inspect_ics.windows_to_iana("Eastern Standard Time") == "America/New_York"
+    import datetime as dtm
+    ny = zoneinfo.ZoneInfo("America/New_York")
+    assert inspect_ics._local_check(dtm.datetime(2026, 3, 8, 2, 30), ny) == "nonexistent"
+    assert inspect_ics._local_check(dtm.datetime(2026, 11, 1, 1, 30), ny) == "ambiguous"
+    assert inspect_ics._local_check(dtm.datetime(2026, 7, 1, 9, 0), ny) is None
+
+
+@test("release: SKILL.md frontmatter is valid and matches the folder")
+def _():
+    src = open(os.path.join(ROOT, "SKILL.md"), encoding="utf-8").read()
+    assert src.startswith("---\n")
+    fm = src.split("---\n", 2)[1]
+    name = re.search(r"(?m)^name: (.+)$", fm).group(1).strip()
+    desc = re.search(r"(?m)^description: (.+)$", fm).group(1).strip()
+    assert name == "microsoft-outlook" and re.fullmatch(r"[a-z0-9-]{1,64}", name)
+    assert 50 <= len(desc) <= 1024 and "<" not in desc
+    assert re.search(r'(?m)^\s+version: "\d+\.\d+\.\d+"$', fm)
+
+
 # ---------------- inspect_ics ----------------
 @test("ics: method, folding, quoted CN with colon, RRULE, EXDATE, Teams link")
 def _():
@@ -374,11 +536,12 @@ def _():
     assert "teams.microsoft.com" in hosts and "192.0.2.44" in hosts, hosts
 
 
-@test("ics: time zones: UTC and IANA converted, Windows TZID left alone")
+@test("ics: time zones: UTC, IANA and Windows (CLDR table) converted; Windows mapping is labelled")
 def _():
     c, r, out = run("inspect_ics.py", FX["invite.ics"], "--json", "--tz", "Asia/Karachi")
     ev = r["events"]
-    assert "converted" not in ev[0]["start"] or ev[0]["start"]["converted"] is None
+    assert ev[0]["start"]["converted"] == "2026-10-14T10:00:00+05:00" and ev[0]["start"]["iana"] == "Asia/Karachi"
+    assert "CLDR" in ev[0]["start"]["note"]
     assert ev[1]["start"]["converted"] == "2026-10-15T14:00:00+05:00"
     assert ev[2]["start"]["converted"] == "2026-10-16T18:00:00+05:00"
     assert "non-iana-tzid" in kinds(r) and "meeting-request" in kinds(r)
@@ -456,7 +619,7 @@ def _():
                 assert "\u2014" not in open(os.path.join(d, f), encoding="utf-8").read(), f
     for s in ("inspect_mail.py", "extract_attachments.py", "inspect_ics.py"):
         src = open(os.path.join(SCRIPTS, s), encoding="utf-8").read()
-        assert "Exit codes:" in src and '"--json"' in src, s
+        assert "Exit codes" in src and '"--json"' in src, s
 
 
 @test("release: every --flag named in SKILL.md exists in a script")

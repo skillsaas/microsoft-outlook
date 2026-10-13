@@ -1,19 +1,24 @@
 """Shared helpers for the microsoft-outlook skill: printable text, link checks, attachment risk,
 safe file names. Standard library only. Nothing here opens a URL or runs a file.
 
-Exit codes used by every script (see SKILL.md):
-  0 ok; 1 risk found with --fail-on-risk, or a check failed; 2 unsupported, corrupt or setup
-  error; 3 safety refusal (limits exceeded, output exists, unsafe path).
+Exit codes used by every script (see SKILL.md). JSON output also carries "status", which names
+the reason, so exit 1 never has to be guessed:
+  0 ok (status "ok", or "incomplete" when something was not fully read: check "incomplete")
+  1 status "risk-threshold" (--fail-on-risk level reached), "risky-skipped" (extract skipped
+    high-risk files) or "incomplete" (extract refuses to call a partial parse a success)
+  2 status "error": unsupported, corrupt or setup error
+  3 status "refused": safety refusal (size, count or time limit, output exists, unsafe path)
 """
+import argparse
 import ipaddress
 import json
 import os
 import re
 import sys
 import unicodedata
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -30,8 +35,8 @@ vsmacros vsw webpnp website ws wsb wsc wsf wsh xbap xll xnk
 # Skill heuristics, not Microsoft's list: formats that carry macros, open in a browser, or hide
 # other files. Labelled separately so the report never claims Outlook blocks them.
 MACRO_OFFICE = frozenset("docm dotm xlsm xltm xlam xlsb pptm potm ppsm ppam sldm doc dot xls xlt ppt pps".split())
-ACTIVE_WEB = frozenset("htm html xhtml shtml svg xht".split())
-CONTAINERS = frozenset("zip 7z rar gz tgz tar bz2 xz z lzh arj ace cab iso img vhd vhdx msg eml".split())
+ACTIVE_WEB = frozenset("htm html xhtml shtml svg svgz xht".split())
+CONTAINERS = frozenset("zip 7z rar gz tgz tar bz2 xz z lzh arj ace cab iso img vhd vhdx msg eml dat tnef".split())
 
 _INVISIBLE = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f"
                         "\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0]")
@@ -82,7 +87,7 @@ def attachment_risk(name, content_type=None, size=None):
         reasons.append("invisible-chars-in-name")
     if "/" in raw or "\\" in raw:
         reasons.append("path-in-name")
-    name = clean_text(raw, 300)
+    name = clean_text(raw, 0)  # full name: a long padded name must not hide its extension
     if _WIN_RESERVED.match(name.replace("\\", "/").split("/")[-1]):
         reasons.append("windows-device-name")
     e = ext_of(name)
@@ -105,11 +110,15 @@ def attachment_risk(name, content_type=None, size=None):
     if ct in ("application/x-msdownload", "application/x-dosexec", "application/hta",
               "application/x-ms-shortcut", "application/javascript", "text/javascript"):
         reasons.append("executable-content-type")
+    if ct in ("application/ms-tnef", "message/rfc822", "application/vnd.ms-outlook"):
+        reasons.append("container")
+    # opens-in-browser is high since 0.1.1: HTML and SVG attachments are a common credential
+    # phishing carrier and can run script when opened from disk.
     high = {"outlook-blocked-type", "bidi-override-in-name", "double-extension",
-            "executable-content-type", "padded-name"}
+            "executable-content-type", "padded-name", "opens-in-browser"}
     if high & set(reasons):
         return "high", reasons
-    if {"macro-capable-office", "opens-in-browser", "container", "invisible-chars-in-name",
+    if {"macro-capable-office", "container", "invisible-chars-in-name",
             "path-in-name", "windows-device-name"} & set(reasons):
         return "medium", reasons
     return "low", reasons
@@ -129,8 +138,8 @@ def safe_filename(name, fallback="attachment"):
         name = "_" + name
     if len(name.encode("utf-8")) > 150:
         stem, dot, e = name.rpartition(".")
-        e = e[:16] if dot else ""
-        name = stem.encode("utf-8")[:120].decode("utf-8", "ignore") + ("." + e if e else "")
+        e = e.encode("utf-8")[:24].decode("utf-8", "ignore") if dot else ""
+        name = stem.encode("utf-8")[:120].decode("utf-8", "ignore").rstrip(" .") + ("." + e if e else "")
     return name
 
 
@@ -177,6 +186,9 @@ def analyze_url(target, text=None):
             reasons.append("ip-host")
         except ValueError:
             pass
+        if "%" in host:
+            reasons.append("encoded-chars-in-host")
+            host = unquote(host).lower()
         if "xn--" in host:
             reasons.append("punycode-host")
         try:
@@ -191,7 +203,7 @@ def analyze_url(target, text=None):
             if registrable(shown) != registrable(host):
                 reasons.append("text-shows-other-host")
     high = {"risky-scheme", "userinfo-in-url", "text-shows-other-host", "invisible-chars-in-target",
-            "unparseable"}
+            "unparseable", "encoded-chars-in-host"}
     risk = "high" if high & set(reasons) else ("medium" if reasons and reasons != ["not-https"] else "low")
     if reasons == ["not-https"]:
         risk = "medium"
@@ -217,7 +229,7 @@ def emit(obj, as_json, human):
 
 
 def fail(as_json, code, msg, **extra):
-    d = {"ok": False, "error": msg}
+    d = {"ok": False, "status": "refused" if code == EXIT_REFUSED else "error", "error": msg}
     d.update(extra)
     if as_json:
         print(json.dumps(d, indent=2, ensure_ascii=False))
@@ -235,3 +247,44 @@ def read_capped(path, cap):
         raise OverflowError("file is %d bytes, over the %d byte limit (--max-bytes)" % (st.st_size, cap))
     with open(path, "rb") as f:
         return f.read(cap + 1)
+
+
+class ArgParser(argparse.ArgumentParser):
+    """argparse that reports usage errors as JSON (status "error", exit 2) when --json is given."""
+
+    def error(self, message):
+        if "--json" in sys.argv[1:]:
+            print(json.dumps({"ok": False, "status": "error", "error": "usage: %s" % message}, indent=2))
+            sys.exit(EXIT_UNSUPPORTED)
+        super().error(message)
+
+
+def watchdog(seconds, as_json):
+    """Wall-clock limit for one run. When it fires, print a refusal and exit 3 at once, from a
+    timer thread, so a pathological file cannot keep the process busy. 0 disables it."""
+    if not seconds or seconds <= 0:
+        return None
+    import threading
+
+    def fire():
+        try:
+            fail(as_json, EXIT_REFUSED, "time limit of %gs reached (--timeout); nothing was completed" % seconds)
+            sys.stdout.flush()
+            sys.stderr.flush()
+        finally:
+            os._exit(EXIT_REFUSED)
+    t = threading.Timer(seconds, fire)
+    t.daemon = True
+    t.start()
+    return t
+
+
+# What these scripts never check, listed in every JSON report so a reader does not assume more.
+NOT_CHECKED_MAIL = [
+    "links are analyzed as text only; no URL is fetched, so final destinations and page content are unknown",
+    "attachment contents are not scanned for malware; risk comes from names and types only",
+    "DKIM and SPF are not re-verified; Authentication-Results are read as written",
+    "encrypted (S/MIME, OME) content is not decrypted",
+    "OLE objects and reference (cloud) attachments are not decoded or followed",
+    "the domain comparison uses a two- or three-label approximation, not the Public Suffix List",
+]

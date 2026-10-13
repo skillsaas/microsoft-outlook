@@ -1,5 +1,7 @@
 # Inbox rules, forwarding and signatures
 
+Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
+
 ## Rules
 Two kinds exist in classic Outlook: **server rules** run in Exchange whether or not Outlook is
 open; **client-only rules** run only while classic Outlook is open with the profile that made
