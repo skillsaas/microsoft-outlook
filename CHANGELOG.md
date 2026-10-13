@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.8 (2026-10-13)
+
+- Tariq N22 (medium): the comment skipper is one linear pass (one search per comment for `-->` or `--!>`), capped at 20,000 comments; 1 MB of `<!---->` now takes milliseconds, not about 50 s. Perf test added.
+- Tariq N23 (medium): detection and parsing use the same cleaned bytes (`mail_view`), so leading blank lines no longer make a nested message parse empty; a promoted message with no headers read is reported incomplete.
+- Tariq N24 (medium): mail detection uses the content-check cleanup (UTF-8 BOM, UTF-16/32, NUL pad, blank lines) and accepts one mbox `From ` line and `Name :` headers; an `.eml`-named or `message/*` file with no header block is held back as `unreadable-container`.
+- Tariq N25 (low): leftover HTML prolog shapes (text before the first comment, long or many stray segments, comments past the 1 MB window) are `prolog-too-long` (medium) or high, never low.
+- Tariq N26 (low): a memo `.txt` that starts with From/To/Subject and has no attachments is saved as itself, not dropped.
+- Hamza R8-A: a high-risk item left out by `--only-ext` counts in `skipped_risky`, status `risky-skipped`, exit 1. R8-B: a text attachment carrying a uuencoded block takes the declared name's risk on its own row.
+- Hamza: the .ics real-file checks and the near-time-limit note were already in 0.1.7 (smoke_test.py ics branch, troubleshooting.md and json-output.md Limits); the .ics check now also compares the event count with the components in the file.
+- Python 3.9: a header the stdlib cannot parse (`Date: Monday`) no longer makes the whole file an error.
+- Tests: 57 plus 3 optional.
+
 ## 0.1.7 (2026-10-13)
 
 - Tariq N20 (medium), Hamza N1: an attached mail message is found by its bytes (a strict RFC 822 header block), so an .eml sent as `application/octet-stream` or renamed `invoice.pdf` is read as a nested message: its attachments are listed, risk-checked and filtered, and the message itself is never written. A renamed one is flagged `mail-message-by-content`; one that cannot be read is `unreadable-container`.

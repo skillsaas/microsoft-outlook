@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -138,33 +138,49 @@ _PROLOG_WINDOW = 1024 * 1024  # how far comments and an XML declaration are skip
 _STRAY = re.compile(rb"[^<]{1,64}")
 
 
-def _skip_prolog(text):
-    """What a browser would reach first: skip whitespace, XML declarations and processing
-    instructions, comments (closed by --> or --!>, any length within the window; an unterminated
-    comment hides everything), and short stray text between them (the tail of a nested comment),
-    in any order."""
-    i, n, stray = 0, len(text), 0
+_CLOSE = re.compile(rb"--!?>")
+_ACTIVE_ANY = re.compile(rb"(?i)<(html|script|svg|iframe|body|head|form|hta:)\b")
+_MAX_COMMENTS = 20000
+
+
+def _skip_prolog(text, more=False):
+    """What a browser would reach first, in one linear pass: skip whitespace, XML declarations
+    and processing instructions, comments (closed by --> or --!>; an unterminated comment hides
+    everything) and short stray text next to a comment (the tail of a nested comment), in any
+    order. Returns (rest, gave_up): gave_up is True when the scan stopped before the content
+    without proving it harmless (comment cap, window end with more data, too much stray text
+    followed by an HTML tag), so the caller can flag it instead of calling it low."""
+    i, n, stray, comments, after_comment = 0, len(text), 0, 0, False
     while True:
         while i < n and text[i] in b"\x00\t\r\n\x0b\x0c ":
             i += 1
+        if i >= n:
+            return b"", more
         if text.startswith(b"<!--", i):
-            ends = [x for x in (text.find(b"-->", i + 4), text.find(b"--!>", i + 4)) if x != -1]
-            if not ends:
-                return b""
-            k = min(ends)
-            i = k + (4 if text.startswith(b"--!>", k) else 3)
+            comments += 1
+            if comments > _MAX_COMMENTS:
+                return b"", True
+            m = _CLOSE.search(text, i + 4)  # one search per comment, from here to its own end
+            if not m:
+                return b"", more
+            i, after_comment = m.end(), True
         elif text.startswith(b"<?", i):
             k = text.find(b"?>", i + 2)
             if k == -1:
-                return b""
-            i = k + 2
-        elif stray < 4 and i < n and text[i:i + 1] != b"<" and i > 0:
+                return b"", more
+            i, after_comment = k + 2, False
+        elif text[i:i + 1] != b"<":
             m = _STRAY.match(text, i)
-            if not m or not text.startswith(b"<", m.end()):
-                return text[i:i + 8192]
-            i, stray = m.end(), stray + 1
+            nxt = m.end() if m else i
+            next_is_comment = text.startswith(b"<!--", nxt)
+            if m and nxt < n and (after_comment or next_is_comment) and stray < 4:
+                i, stray, after_comment = nxt, stray + 1, False
+                continue
+            rest = text[i:i + 8192]
+            gave_up = (after_comment or next_is_comment or stray > 0) and bool(_ACTIVE_ANY.search(text, i, i + 65536))
+            return rest, gave_up
         else:
-            return text[i:i + 8192]
+            return text[i:i + 8192], False
 
 
 def _code_like(head):
@@ -207,9 +223,12 @@ def content_risk(data, name):
             out.append("executable-content:windows-executable")
         elif b"\x7fELF" in raw[:1024]:
             out.append("executable-content:elf-executable")
-    prolog = head
-    if head.startswith((b"<!--", b"<?")):  # comments or a declaration first: look past them, up to 1 MB
-        prolog = _skip_prolog(_normalize(data[bom + pad:bom + pad + _PROLOG_WINDOW]))
+    prolog, gave_up = head, False
+    if b"<!--" in head[:512] or head.startswith(b"<?"):  # comments or a declaration first: look past them
+        win = data[bom + pad:bom + pad + _PROLOG_WINDOW]
+        prolog, gave_up = _skip_prolog(_normalize(win), more=len(data) > bom + pad + _PROLOG_WINDOW)
+    if gave_up and not _ACTIVE_TEXT.match(prolog) and e not in ("html", "htm", "svg", "xml"):
+        out.append("prolog-too-long")
     if (_ACTIVE_TEXT.match(head) or _ACTIVE_TEXT.match(prolog)) and e not in ("html", "htm", "svg", "xml"):
         out.append("executable-content:html-or-script")
     elif _WSH.match(head) and e not in ("vbs", "ps1", "bat", "cmd", "js", "wsf"):

@@ -62,6 +62,7 @@ def plan(m, a):
     for idx, att in walk(m):
         risk, reasons = mailsafe.attachment_risk(att["name"], att["content_type"])
         risk, reasons = mailsafe.kind_risk(att["kind"], risk, reasons + mailparse.att_reasons(att), att["data"], att["name"])
+        risk, reasons = mailparse.uu_risk(att, risk, reasons)
         it = {"index": idx, "name": mailsafe.clean_text(att["name"], 300), "kind": att["kind"],
               "size": len(att["data"] or b""), "sha256": mailparse.sha256(att["data"]) if att["data"] else None,
               "risk": risk, "reasons": reasons, "saved_as": None, "skipped": None}
@@ -72,7 +73,10 @@ def plan(m, a):
         # a container whose contents were read is never written itself (an attached .eml, .msg or
         # winmail.dat, whatever --only-ext says); its attachments are filtered one by one. An
         # unreadable container is filtered like any file, so it can never slip past the allowlist.
-        if att["kind"] in mailsafe.CONTAINER_KINDS and att.get("nested"):
+        # a text file promoted only by its header block (a memo .txt starting From/To/Subject) that
+        # holds no attachments is saved as the file it is, never dropped silently
+        memo = att.get("by_content") and att.get("nested") and not att["nested"]["attachments"]
+        if att["kind"] in mailsafe.CONTAINER_KINDS and att.get("nested") and not memo:
             what = {"tnef": "TNEF container", "msg": "Outlook message container (found by content)"}.get(
                 att["kind"], "attached message")
             it["skipped"] = "%s: its attachments are saved instead" % what
@@ -222,7 +226,9 @@ def main(argv=None):
             return mailsafe.fail(a.json, 3, "write failed, nothing kept: %s" % e)
     for i in items:
         i.pop("_data", None)
-    risky = [i for i in items if i["skipped"] and i["skipped"].startswith("high risk")]
+    # a high-risk item left out by --only-ext is still reported: the user must hear about it
+    risky = [i for i in items if i["skipped"] and (i["skipped"].startswith("high risk") or
+                                                   (i["risk"] == "high" and i["skipped"] == "extension not in --only-ext"))]
     uu = [{"where": w, "name": mailsafe.clean_text(n, 200), "risk": mailsafe.attachment_risk(n)[0]}
           for w, n in mailparse.uu_scan(m)]
     r = {"ok": True, "status": "risky-skipped" if risky or uu else ("incomplete" if inc else "ok"), "error": None,

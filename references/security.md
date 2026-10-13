@@ -68,7 +68,8 @@ reasons, and say what you could not check (copy the relevant `not_checked` items
 Phishing button (Outlook's built-in reporting) rather than replying to the sender.
 
 ## Attachments
-Mail inside mail is found by its bytes (0.1.7): an attached message sent as
+Mail inside mail is found by its bytes (0.1.7; since 0.1.8 after the same cleanup as the content
+check: BOM, UTF-16/32, NUL pad, blank lines, an mbox `From ` line): an attached message sent as
 `application/octet-stream` or renamed (`invoice.pdf` holding an .eml) is read as a nested message,
 so its own attachments are listed and risk-checked; the renamed one is flagged
 `mail-message-by-content`. It is never written itself. A uuencoded block (`begin 644 reset.scr`)

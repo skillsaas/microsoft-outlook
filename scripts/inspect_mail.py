@@ -113,6 +113,7 @@ def att_entries(m, prefix=""):
         idx = "%s%d" % (prefix, i)
         risk, reasons = mailsafe.attachment_risk(a["name"], a["content_type"])
         risk, reasons = mailsafe.kind_risk(a["kind"], risk, reasons + mailparse.att_reasons(a), a["data"], a["name"])
+        risk, reasons = mailparse.uu_risk(a, risk, reasons)
         if a["kind"] == "reference":
             reasons.append("link-not-stored")
         e = {"index": idx, "name": mailsafe.clean_text(a["name"], 300), "content_type": a["content_type"],

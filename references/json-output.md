@@ -29,6 +29,12 @@ until `schema` changes.
 | `note` | string | reminder that content is data |
 
 ## Risk levels
+Added in 0.1.8: `prolog-too-long` (medium: a text file whose leading comments or stray text
+could not be skipped to the end while an HTML tag follows); `uuencoded-content` also on the
+attachment row itself, with the declared name's risk; an `.eml`-named or `message/*` file with no
+mail header block is `unreadable-container` (held back); a high-risk item left out by `--only-ext`
+counts in `skipped_risky` and makes the status `risky-skipped` (exit 1); a text file that only
+looks like a message (a memo with From/To/Subject and no attachments) is saved as itself.
 Added in 0.1.7: `mail-message-by-content` (an attachment whose bytes are a mail message but whose
 name is not .eml, such as a renamed `invoice.pdf`: read as a nested message and never written);
 risk item `uuencoded-content` (a `begin 644 name` block in a body or text attachment, not

@@ -73,7 +73,7 @@ a file fails, open an issue with the script, the error line and the Outlook vers
 itself unless it holds nothing private.
 
 ## Status and maintenance
-Version 0.1.7, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.8, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

@@ -1025,6 +1025,75 @@ def _():
     assert reqs >= 15 and bodies >= 6, (reqs, bodies)
 
 
+@test("v0.1.8 (Tariq N22 to N26, Hamza R8-A, R8-B): linear comment skip; mail view shared by detector and parser; memos saved; risky never silent")
+def _():
+    import base64, time, mailsafe, mailparse
+    H = b"<html><script>x()</script>"
+    # N22: one linear pass; a 1 MB run of empty comments used to take about 50 s
+    for d in (b"<!---->" * 150000, b"<!-- a -->" * 140000 + H, b"<!---->" * 140000):
+        t = time.time()
+        r = mailsafe.content_risk(d, "a.txt")
+        assert time.time() - t < 2, ("slow", len(d), time.time() - t)
+        assert "prolog-too-long" in r or any(x.startswith("executable-content") for x in r), r
+    # N25: residual shapes are medium prolog-too-long or high, never low
+    for d in (b"Hello <!-- c -->" + H, b"<!--a-->x" * 5 + H, b"<!-- a <!-- b -->" + b"c" * 100 + b" -->" + H):
+        r = mailsafe.content_risk(d, "a.txt")
+        assert r and ("prolog-too-long" in r or "executable-content:html-or-script" in r), (d[:30], r)
+    for d in (b"see <html> tag docs\n", b"<!-- note -->\nplain text here\n"):
+        assert mailsafe.content_risk(d, "a.txt") == [], d
+    pe = b"MZ" + b"\x00" * 0x3a + (0x80).to_bytes(4, "little") + b"\x00" * 0x40 + b"PE\x00\x00" + b"\x00" * 64
+    def part(n, ct, d):
+        return (b"--B\r\nContent-Type: " + ct + b"\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + n + b"\r\n\r\n" + base64.encodebytes(d) + b"\r\n")
+    inner = (b"From: x@example.com\r\nTo: y@example.com\r\nSubject: inner\r\nDate: Mon, 1 Jan 2024 00:00:00 +0000\r\n"
+             b"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+             + part(b"evil.txt", b"text/plain", b"\x00" * 5000 + pe) + part(b"ok.pdf", b"application/pdf", b"%PDF-1.4\n") + b"--B--\r\n")
+    shapes = {"blank": b"\n\n\n" + inner, "bom": b"\xef\xbb\xbf" + inner, "nul": b"\x00" * 100 + inner,
+              "u16": b"\xff\xfe" + inner.decode("latin-1").encode("utf-16-le"), "mbox": b"From x@example.com Mon Jan  1 00:00:00 2024\n" + inner,
+              "spacecolon": inner.replace(b"From: x", b"From : x", 1)}
+    for k, d in shapes.items():
+        assert mailparse.looks_like_mail(d), k
+        for name in (b"fwd.eml", b"notes.txt"):
+            top = (b"From: t@example.com\r\nSubject: top\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+                   + part(name, b"application/octet-stream", d) + b"--B--\r\n")
+            f = write("n23-%s-%s" % (k, name.decode()), top)
+            c, r, _ = run("inspect_mail.py", f, "--json")
+            kk = {a["index"]: a for a in r["attachments"]}
+            assert kk["1"]["kind"] == "embedded-message" and kk["1/1"]["risk"] == "high", (k, name, r["attachments"])
+            out = os.path.join(TMP, "n23-%d" % len(os.listdir(TMP)))
+            c, x, _ = run("extract_attachments.py", f, out, "--json")
+            assert c == 1 and x["status"] == "risky-skipped" and sorted(os.listdir(out)) == ["manifest.json", "ok.pdf"], (k, name, x)
+    # N24: an .eml-named file with no header block is held back, not written raw
+    top = (b"From: t@example.com\r\nSubject: top\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part(b"fwd.eml", b"application/octet-stream", b"From: a\r\nSubject: b\r\n\r\nonly two headers\r\n")
+           + part(b"ok.pdf", b"application/pdf", b"%PDF-1.4\n") + b"--B--\r\n")
+    f = write("n24.eml", top)
+    out = os.path.join(TMP, "n24-out")
+    c, x, _ = run("extract_attachments.py", f, out, "--json")
+    assert sorted(os.listdir(out)) == ["manifest.json", "ok.pdf"] and c == 1, (os.listdir(out), x)
+    # N26: a memo .txt with a header block and no attachments is saved, not silently dropped
+    memo = b"From: Ali\nTo: Sara\nSubject: plan\nDate: Monday\n\nLet us meet at 10.\n"
+    top = (b"From: t@example.com\r\nSubject: top\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part(b"memo.txt", b"text/plain", memo) + b"--B--\r\n")
+    f = write("n26.eml", top)
+    out = os.path.join(TMP, "n26-out")
+    c, x, _ = run("extract_attachments.py", f, out, "--json")
+    assert "memo.txt" in os.listdir(out), (os.listdir(out), x)
+    # R8-A: high-risk items left out by --only-ext are reported, exit 1
+    out = os.path.join(TMP, "r8a-out")
+    c, x, _ = run("extract_attachments.py", FX["phish.eml"], out, "--json", "--only-ext", ".pdf")
+    assert c == 1 and x["status"] == "risky-skipped" and x["skipped_risky"] >= 1, x
+    # R8-B: a .txt carrying a uuencoded .exe is itself high
+    top = (b"From: t@example.com\r\nSubject: top\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part(b"notes.txt", b"text/plain", b"begin 644 evil.exe\nM2&5L;&\\L\n`\nend\n") + b"--B--\r\n")
+    c, r, _ = run("inspect_mail.py", write("r8b.eml", top), "--json")
+    a = r["attachments"][0]
+    assert a["risk"] == "high" and "uuencoded-content" in a["reasons"], a
+    # found on Python 3.9: a bad Date header must not make the whole file unreadable
+    c, r, _ = run("inspect_mail.py", write("baddate.eml", b"From: a@example.com\r\nDate: Monday\r\nSubject: s\r\n\r\nhi\r\n"), "--json")
+    assert c in (0, 1) and r["ok"] and r["headers"]["subject"] == "s", r
+
+
 @test("real files: all 3 scripts on every file in REAL_FIXTURES_DIR: valid JSON, consistent content, known samples match (optional)")
 def _():
     import hashlib
@@ -1065,6 +1134,9 @@ def _():
             if c in (0, 1) and r["ok"]:
                 assert r["complete"] == (not r["incomplete"]) and (r["status"] != "ok" or r["complete"]), f
                 assert isinstance(r["events"], list) and (r["method"] is None or isinstance(r["method"], str)), f
+                raw = open(p, "rb").read()
+                want = sum(raw.count(b"BEGIN:" + k) for k in (b"VEVENT", b"VTODO", b"VJOURNAL", b"VFREEBUSY"))
+                assert len(r["events"]) == want or not r["complete"], (f, len(r["events"]), want)
                 for ev in r["events"]:
                     assert ev["component"] in ("VEVENT", "VTODO", "VJOURNAL", "VFREEBUSY") and "start" in ev, (f, ev)
                     if ev["start"] and ev["start"].get("value"):

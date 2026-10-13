@@ -44,16 +44,27 @@ def _new(fmt):
 _MAIL_HDRS = {b"from", b"to", b"cc", b"subject", b"date", b"message-id", b"mime-version", b"received",
               b"return-path", b"reply-to", b"content-type", b"x-mailer", b"delivered-to"}
 _KEY_HDRS = {b"from", b"date", b"message-id", b"received", b"mime-version", b"subject"}
-_HDR_LINE = re.compile(rb"^([!-9;-~]+):")
+_HDR_LINE = re.compile(rb"^([!-9;-~]+)[ \t]*:")
+
+
+def mail_view(d):
+    """The bytes a mail reader would parse: the same cleanup content_risk uses (UTF-8 BOM, UTF-16
+    or UTF-32 decoded, leading NULs, blank lines and whitespace removed) plus one mbox "From "
+    envelope line dropped. Detection and parsing both use this, so they cannot disagree."""
+    v = mailsafe._normalize(d.lstrip(b"\x00\t\r\n "))  # pad first, so it cannot pass for UTF-16/32
+    if v.startswith(b"From ") and not re.match(rb"From[ \t]*:", v):
+        k = v.find(b"\n")
+        v = v[k + 1:] if k != -1 else b""
+    return v
 
 
 def looks_like_mail(d):
-    """True when the bytes start with an RFC 822 header block: at least three known mail headers,
-    two of them From, Date, Message-ID, Received, MIME-Version or Subject, every line a header or
-    a continuation, ended by a blank line. Strict on purpose, so notes with "Key: value" lines and
-    HTTP or YAML text stay ordinary files."""
-    head = d[:16384].lstrip(b"\r\n\t ")
-    end = re.search(rb"\r?\n\r?\n", head)
+    """True when mail_view(d) starts with an RFC 822 header block: at least three known mail
+    headers, two of them From, Date, Message-ID, Received, MIME-Version or Subject, every line a
+    header ("Name:" or the obsolete "Name :") or a continuation, ended by a blank line. Strict on
+    purpose, so notes with "Key: value" lines and HTTP or YAML text stay ordinary files."""
+    head = mail_view(d[:65536])
+    end = re.search(rb"\r?\n\r?\n", head[:16384])
     if not end:
         return False
     names = []
@@ -105,6 +116,9 @@ def att_reasons(a):
         out.append("unreadable-container")
     if a.get("by_content") and not (a.get("name") or "").lower().rstrip(". ").endswith(".eml"):
         out.append("mail-message-by-content")
+    if a["kind"] == "file" and a.get("data") and ((a.get("name") or "").lower().rstrip(". ").endswith(".eml")
+                                                  or (a.get("content_type") or "").lower().startswith("message/")):
+        out.append("unreadable-container")  # says it is a message, but no mail header block was found
     if a.get("damaged_cfb") or a.get("unreadable_msg"):
         out.append("damaged-compound-file" if a.get("damaged_cfb") else "unreadable-container")
     return out
@@ -149,6 +163,20 @@ def uu_blocks(data):
     return out
 
 
+def uu_risk(a, risk, reasons):
+    """A text attachment that carries uuencoded blocks takes the risk of the declared names, at
+    least medium, with the reason uuencoded-content (so the row itself shows it)."""
+    if a["kind"] != "file" or not a.get("data") or not ((a.get("content_type") or "").startswith("text/") or
+                                                         mailsafe.ext_of(a.get("name") or "") in mailsafe.TEXT_EXTS):
+        return risk, reasons
+    names = uu_blocks(a["data"])
+    if not names:
+        return risk, reasons
+    order = {"low": 0, "medium": 1, "high": 2}
+    worst = max([mailsafe.attachment_risk(n)[0] for n in names] + ["medium"], key=order.get)
+    return max(risk, worst, key=order.get), reasons + ["uuencoded-content"]
+
+
 def uu_scan(m, prefix=""):
     """(where, declared name) for uuencoded blocks in the body text and in text attachments,
     nested messages included."""
@@ -189,7 +217,12 @@ def parse_auth(values):
     return res
 
 
-def _hdr_model(get_all):
+def _hdr_model(get_all_raw):
+    def get_all(key):  # Python 3.9's header classes raise on some bad values (Date: Monday)
+        try:
+            return get_all_raw(key)
+        except (TypeError, ValueError, IndexError, AttributeError):
+            return ["(unparseable %s header)" % key] if key in ("subject", "date", "message-id") else None
     h = {}
     for key in ("subject", "date", "message-id", "x-mailer", "user-agent"):
         v = get_all(key)
@@ -296,7 +329,10 @@ def _nest(m, depth):
                 m["incomplete"].append("attachment %d: nested message not read (depth over %d)" % (i, MAX_DEPTH))
                 continue
             try:
-                a["nested"] = parse_bytes(a["data"], depth + 1)
+                raw = mail_view(a["data"]) if a.get("by_content") else a["data"]
+                a["nested"] = parse_bytes(raw, depth + 1)
+                if a.get("by_content") and not a["nested"]["headers"].get("from") and not a["nested"]["headers"].get("subject"):
+                    m["incomplete"].append("attachment %d: looks like a mail message but no headers were read" % i)
             except (MailError, msgcfb.CfbError, tnef.TnefError, rtfbody.RtfError,
                     struct.error, IndexError, ValueError, RecursionError) as e:
                 m["incomplete"].append("attachment %d: nested %s not read: %s" % (i, a["kind"], e))
