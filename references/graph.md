@@ -188,7 +188,10 @@ Prefer: outlook.timezone="Pakistan Standard Time"
 Each batch item has its own status: check every one; a 200 for the batch is not success for all.
 
 ## Throttling and errors
-- `429` and `503` carry `Retry-After`: wait that long, then retry; do not loop fast.
+- `429` and `503` carry `Retry-After`: wait that long, then retry; do not loop fast. With no
+  `Retry-After`, back off 2, 4, 8, 16 s (with jitter), stop after 5 tries and tell the user.
+- Before any write, verify the request shape against the current Microsoft Learn page; these
+  recipes were checked on 2026-10-13 and Graph changes.
 - SKILL.md safety rule 7 applies (no blind retries): after a timeout on `send`, `sendMail`, an event create or a rule
   create, look first (Sent Items, the calendar, the rule list) or the user may get duplicates.
 - `ErrorAccessDenied` usually means a missing scope or a mailbox the user cannot open: report it,

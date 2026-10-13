@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 (2026-10-13)
+
+- Tariq (top): before the magic check the head is normalized (BOM, leading whitespace, nulls and junk stripped; UTF-16 decoded when the text is printable), and a PE header is searched. A document whose content does not match its type is held back from extract unless `--include-risky` (saved as `.quarantine`). LNK magic added.
+- Tariq: plain JavaScript or JScript saved as .txt is `script-like-text` (held back). `tests/fetch_public_samples.py` fetches the 38 public samples pinned by commit and SHA-256; `tests/public_samples_expected.json` holds expected subjects and attachment names, checked by the REAL_FIXTURES_DIR test.
+- Hamza: `--only-ext` no longer writes an unreadable container (a damaged .msg under `--only-ext .pdf`); a damaged non-mail Compound File is `damaged-compound-file`, not an Outlook message; a bad RTF CRC with a clean decode is a warning; extract uses `mailsafe.off_timeout` instead of a private global; the write lock is separate from the print lock; regression test that times out at the rename.
+- haiku: Authentication-Results read as text, DKIM/SPF/DMARC not re-verified (security.md); Graph backoff without Retry-After. luna: verify against current Learn docs before a write; evals.json pointed to. mini: .pst and encrypted mail explicit in the task table and support matrix. gpt-oss: new reasons in json-output.md.
+- Tests: 52 plus 3 optional (55 with corpora); also pass on Python 3.9.25.
+
 ## 0.1.4 (2026-10-13)
 
 - Tariq (top): `text-shows-other-host` fires when the link text names a different host anywhere ("Please visit https://paypal.com now"), not only at the start; file names and email addresses in the text are ignored.

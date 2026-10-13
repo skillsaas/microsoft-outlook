@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -83,32 +83,86 @@ _ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
 _EXEC_MAGIC = ((b"MZ", "windows-executable"), (b"\x7fELF", "elf-executable"), (b"\xcf\xfa\xed\xfe", "macho-executable"),
-               (b"\xce\xfa\xed\xfe", "macho-executable"), (b"\xca\xfe\xba\xbe", "macho-executable"), (b"#!", "script"))
+               (b"\xce\xfa\xed\xfe", "macho-executable"), (b"\xca\xfe\xba\xbe", "macho-executable"), (b"#!", "script"),
+               (b"L\x00\x00\x00\x01\x14\x02\x00", "windows-shortcut"))
 _TYPE_MAGIC = {"pdf": (b"%PDF",), "png": (b"\x89PNG",), "jpg": (b"\xff\xd8\xff",), "jpeg": (b"\xff\xd8\xff",),
                "gif": (b"GIF8",), "zip": (b"PK",), "docx": (b"PK",), "xlsx": (b"PK",), "pptx": (b"PK",),
                "doc": (b"\xd0\xcf\x11\xe0",), "xls": (b"\xd0\xcf\x11\xe0",), "ppt": (b"\xd0\xcf\x11\xe0",)}
-_ACTIVE_TEXT = re.compile(rb"(?is)^\s*(<\?xml[^>]*>\s*)?(<!doctype html|<html|<script|<svg|<hta:)")
-_WSH = re.compile(rb"(?i)^\s*(on error resume next|set \w+ = createobject|wscript\.|\$\w+\s*=|powershell|@echo off)")
+_ACTIVE_TEXT = re.compile(rb"(?is)^(<\?xml[^>]*>\s*)?(<!doctype html|<html|<script|<svg|<hta:|<head|<body|<iframe|<form)")
+_WSH = re.compile(rb"(?i)^(on error resume next|set \w+ = createobject|wscript\.|\$\w+\s*=|powershell|@echo off|"
+                  rb"<job|<package|\[system\.)")
+# JavaScript-like text (renamed .js): strong markers count alone, weak ones need two together
+_JS_STRONG = re.compile(rb"(?i)(new\s+activexobject|wscript\.shell|\beval\s*\(|fromcharcode\s*\(|document\.write\s*\(|"
+                        rb"\bshell\.application|\bcreateobject\s*\()")
+_JS_WEAK = (re.compile(rb"\bfunction\s*\w*\s*\([^)]*\)\s*\{"), re.compile(rb"\b(var|let|const)\s+\w+\s*="),
+            re.compile(rb"\breturn\b[^;\n]*;"), re.compile(rb"=>\s*\{"), re.compile(rb"\)\s*;\s*\}"))
+TEXT_EXTS = {"txt", "text", "log", "csv", "md", "ini", "cfg", "json", "xml", "dat", ""}
+# reasons that keep a file out of the output folder unless --include-risky (then saved as .quarantine)
+HOLD_BACK = {"content-does-not-match-extension", "script-like-text", "unreadable-container",
+             "damaged-compound-file"}
+
+
+def _normalize(head):
+    """Bytes as an opener would see them: UTF-16 (BOM or alternating nulls) decoded to UTF-8, a
+    UTF-8 BOM, leading whitespace and leading NUL padding removed."""
+    h = head
+    def _text16(x):  # UTF-16 without a BOM only if the other bytes are printable ASCII
+        return len(x) >= 16 and x.count(0) >= 6 and all(32 <= c < 127 or c in (9, 10, 13) for c in x if c)
+    if h[:2] in (b"\xff\xfe", b"\xfe\xff") or \
+            (h[1:16:2].count(0) >= 6 and _text16(h[:16])) or (h[0:16:2].count(0) >= 6 and _text16(h[:16])):
+        enc = "utf-16" if h[:2] in (b"\xff\xfe", b"\xfe\xff") else ("utf-16-le" if h[1:16:2].count(0) >= 6 else "utf-16-be")
+        try:
+            h = h[: len(h) - len(h) % 2].decode(enc, "ignore").encode("utf-8", "ignore")
+        except (LookupError, ValueError):
+            pass
+    if h.startswith(b"\xef\xbb\xbf"):
+        h = h[3:]
+    return h.lstrip(b"\x00\t\r\n\x0b\x0c ")
+
+
+def _find_pe(data, limit=4096):
+    """An MZ header within the first bytes whose e_lfanew points at a PE signature: junk before MZ."""
+    k = data.find(b"MZ", 0, limit)
+    while k != -1:
+        if len(data) >= k + 0x40:
+            off = int.from_bytes(data[k + 0x3c:k + 0x40], "little")
+            if 0 < off < 4096 and data[k + off:k + off + 4] == b"PE\x00\x00":
+                return k
+        k = data.find(b"MZ", k + 1, limit)
+    return -1
 
 
 def content_risk(data, name):
     """Reasons from the bytes, not the name: executable or script content, or bytes that do not
-    match the claimed type (fake.pdf holding MZ). Run on what extraction would save."""
+    match the claimed type (fake.pdf holding MZ). Checks run after _normalize, so a BOM, UTF-16,
+    whitespace or NUL padding in front does not hide the content. A type check, not a scan."""
     if not data:
         return []
-    head, e, out = data[:4096], ext_of(name or ""), []
+    raw, e, out = data[:8192], ext_of(name or ""), []
+    head = _normalize(raw)
+    bin_head = (raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw).lstrip(b"\x00\t\r\n\x0b\x0c ")
     for sig, what in _EXEC_MAGIC:
-        if head.startswith(sig):
+        if bin_head.startswith(sig) or head.startswith(sig):
             out.append("executable-content:" + what)
             break
+    else:
+        if _find_pe(raw) > 0:
+            out.append("executable-content:windows-executable")
+        elif b"\x7fELF" in raw[:1024]:
+            out.append("executable-content:elf-executable")
     if _ACTIVE_TEXT.match(head) and e not in ("html", "htm", "svg", "xml"):
         out.append("executable-content:html-or-script")
-    elif _WSH.match(head) and e not in ("vbs", "ps1", "bat", "cmd", "js"):
+    elif _WSH.match(head) and e not in ("vbs", "ps1", "bat", "cmd", "js", "wsf"):
         out.append("executable-content:script")
+    elif e in TEXT_EXTS and e not in ("json", "xml"):
+        if _JS_STRONG.search(head):
+            out.append("executable-content:script")
+        elif sum(1 for r in _JS_WEAK if r.search(head)) >= 2:
+            out.append("script-like-text")
     want = _TYPE_MAGIC.get(e)
-    if want and not any(head.lstrip(b"\r\n\t ")[:8].startswith(w) or (e == "pdf" and w in head[:1024]) for w in want):
+    if want and not any(head[:8].startswith(w) or (e == "pdf" and w in raw[:1024]) for w in want):
         out.append("content-does-not-match-extension")
-    return out
+    return list(dict.fromkeys(out))
 
 
 def kind_risk(kind, risk, reasons, data=None, name=None):
@@ -128,6 +182,8 @@ def kind_risk(kind, risk, reasons, data=None, name=None):
             risk = "high"
         elif cr and _ORDER[risk] < 1:
             risk = "medium"
+    if HOLD_BACK & set(reasons) and _ORDER[risk] < 1:
+        risk = "medium"
     return risk, list(dict.fromkeys(reasons))
 
 
@@ -298,15 +354,17 @@ def urls_in_text(s, cap=500):
 
 # One result per run: the main thread and the --timeout watchdog both print through this lock,
 # and whichever comes first wins, so output is never two JSON documents or a torn one.
-_LOCK = threading.Lock()
+_LOCK = threading.Lock()  # print lock: exactly one result is printed
+_WRITE_LOCK = threading.Lock()  # write lock: see guarded()
 _RUN = {"done": False, "cleanup": [], "timer": None, "committed": False}
 
 
 def guarded():
     """Hold this around each write step that the watchdog must not interrupt halfway (one file, the
-    final rename). The watchdog takes the same lock, so it fires only between steps, and its cleanup
-    never races a write in progress. Do not call emit or fail while holding it."""
-    return _LOCK
+    final rename). It is the write lock, separate from the print lock; the watchdog takes it before
+    cleaning up, so it fires only between steps and its cleanup never races a write in progress.
+    Do not call emit or fail while holding it."""
+    return _WRITE_LOCK
 
 
 def committed():
@@ -395,7 +453,9 @@ def watchdog(seconds, as_json):
         return None
 
     def fire():
-        with _LOCK:
+        # write lock first (waits for a file write or the rename in progress), then the print lock;
+        # the main thread never holds the print lock while holding the write lock, so no deadlock
+        with _WRITE_LOCK, _LOCK:
             if _RUN["done"] or _RUN["committed"]:
                 return  # the result is out, or the output is committed and its result follows
             _RUN["done"] = True

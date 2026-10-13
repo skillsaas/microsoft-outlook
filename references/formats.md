@@ -16,6 +16,8 @@ Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, rea
 | `.ics`, `.vcs` | yes, `inspect_ics.py` | n/a | synthetic fixture | RRULE expansion, VTIMEZONE rule evaluation |
 | `.pst`, `.ost` | **no: orientation only** | no | nothing; readpst was run only on a non-PST file | everything; use classic Outlook or readpst |
 | `.oft` | as `.msg` | as `.msg` | not tested | |
+| damaged Compound File (not .msg/.oft by name or type) | flagged `damaged-compound-file`, incomplete; not treated as a message | held back | synthetic | |
+| encrypted, S/MIME, IRM | headers only | no | not tested | decryption |
 
 ## Known-risky variants (real-world limits)
 Patterns that real Outlook files contain and how far the scripts go with them. "Synthetic" means a
@@ -122,7 +124,7 @@ what was missed in `incomplete`; extract writes nothing unless `--allow-incomple
 | :--- | :--- |
 | `tests/fixtures/sample.msg` (written from MS-CFB and MS-OXMSG by `make_fixtures.py`) read by olefile 0.47 and extract-msg 0.56.1 | Same subject, sender, To, Cc, body, 3 attachments, embedded message and its attachment bytes. Run it with `XCHECK_PYTHON=/path/to/python tests/smoke_test.py` |
 | `tnef.py` against tnefparse 1.4.0 on its 19 sample `.tnef` files | Same attachment count and names on all 19 (29 attachments). Bytes equal except where tnefparse strips trailing NUL bytes from data and keeps the 16-byte interface id in front of an OLE object; `tnef.py` keeps the data whole and drops the id, giving a valid Compound File |
-| Public sample .msg and .eml files (0.1.4) | 28 public sample .msg and 10 .eml files from the test sets of MSGReader (MIT), msg-extractor (GPL-3.0) and ruby-msg (fetched for testing, not shipped: their licenses differ). All 38 went through inspect, extract and REAL_FIXTURES_DIR with no traceback. 37 complete; `TestWithAttachmentsAndInlines.eml` is correctly incomplete (two message/rfc822 parts hold plain text, not messages). All 28 .msg subjects and top-level attachment names equal extract-msg 0.56.1, including an attached .msg, an inner mail with attachments, RTF, HTML and plain bodies, French and Russian text, contacts and notes. 24 compressed RTF streams: 21 non-empty, all byte-identical to compressed_rtf 1.0.7, 0 CRC failures (so the CRC check stays an incomplete signal); 3 were empty beside a plain body and are now ignored. Outlook versions of the samples are unknown |
+| Public sample .msg and .eml files (0.1.4) | 28 public sample .msg and 10 .eml files from the test sets of MSGReader (MIT), msg-extractor (GPL-3.0) and ruby-msg (fetched for testing, not shipped: their licenses differ). All 38 went through inspect, extract and REAL_FIXTURES_DIR with no traceback. 37 complete; `TestWithAttachmentsAndInlines.eml` is correctly incomplete (two message/rfc822 parts hold plain text, not messages). All 28 .msg subjects and top-level attachment names equal extract-msg 0.56.1, including an attached .msg, an inner mail with attachments, RTF, HTML and plain bodies, French and Russian text, contacts and notes. 24 compressed RTF streams: 21 non-empty, all byte-identical to compressed_rtf 1.0.7, 0 CRC failures (since 0.1.5 a CRC mismatch alone is a warning); 3 were empty beside a plain body and are now ignored. Outlook versions of the samples are unknown |
 | Python `email` on `.eml` | Standard library behavior; fixtures cover nested `message/rfc822`, TNEF inside MIME, RFC 2231 names |
 
 ## .pst and .ost (orientation only)

@@ -43,8 +43,8 @@ def crc32(data):
 
 def decompress(data, max_out=32 * 1024 * 1024):
     """Return (rtf_bytes, warnings, damaged). damaged lists problems that mean the body may be
-    wrong or cut short (CRC mismatch, no end marker, short output); callers mark the parse
-    incomplete for those. Raises RtfError on a malformed header or stream."""
+    wrong or cut short (no end marker, short output, and a CRC mismatch together with those);
+    callers mark the parse incomplete for those. A CRC mismatch alone is a warning. Raises RtfError on a malformed header or stream."""
     if len(data) < 16:
         raise RtfError("compressed RTF shorter than its 16-byte header")
     comp_size, raw_size, ctype, crc = struct.unpack_from("<IIII", data, 0)
@@ -56,16 +56,17 @@ def decompress(data, max_out=32 * 1024 * 1024):
         warnings.append("compressed RTF size field %d does not match the stream (%d bytes)" % (comp_size, len(data) - 4))
     if ctype == MELA:
         # MS-OXRTFCP: for uncompressed (MELA) content the CRC field MUST be 0
-        if crc != 0:
-            damaged.append("uncompressed RTF has a nonzero CRC field (spec requires 0)")
         out = data[16:16 + raw_size]
         if len(out) < raw_size:
             damaged.append("uncompressed RTF is %d bytes, header says %d" % (len(out), raw_size))
+        if crc != 0:
+            (damaged if damaged else warnings).append(
+                "uncompressed RTF has a nonzero CRC field (spec requires 0)"
+                + ("" if damaged else "; the body is complete by its declared size, so it is shown"))
         return out, warnings, damaged
     if ctype != LZFU:
         raise RtfError("unknown compressed RTF type 0x%08x" % ctype)
-    if crc32(body) != crc:
-        damaged.append("compressed RTF CRC mismatch")
+    crc_bad = crc32(body) != crc
     d = bytearray(4096)
     d[:207] = _PREBUF
     w = 207
@@ -103,6 +104,13 @@ def decompress(data, max_out=32 * 1024 * 1024):
         damaged.append("compressed RTF has no end marker (truncated?)")
     if len(out) < raw_size:
         damaged.append("decompressed RTF is %d bytes, header says %d" % (len(out), raw_size))
+    if crc_bad:
+        # a bad CRC alone, with the end marker and the declared size reached, is a warning: some
+        # writers store a wrong CRC on a body that decodes completely. With other damage it counts.
+        if damaged:
+            damaged.append("compressed RTF CRC mismatch")
+        else:
+            warnings.append("compressed RTF CRC mismatch; the body decoded completely (end marker and declared size reached), so it is shown")
     return (bytes(out[:raw_size]) if raw_size else bytes(out)), warnings, damaged
 
 

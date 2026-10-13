@@ -49,15 +49,31 @@ def _promote(a):
     if a["kind"] != "file" or not a["data"]:
         return
     d = a["data"]
-    if d[:8] == msgcfb.SIG and msgcfb.is_msg(d) is not False:
-        # a damaged Compound File (None) is treated as a possible .msg: the nested read then fails and
-        # the parse is reported incomplete instead of the attachment passing as an ordinary file
+    claims_msg = (a.get("name") or "").lower().rstrip(". ").endswith((".msg", ".oft")) or \
+        (a.get("content_type") or "").lower() == "application/vnd.ms-outlook"
+    ok = msgcfb.is_msg(d) if d[:8] == msgcfb.SIG else False
+    if ok or (ok is None and claims_msg):
+        # a damaged Compound File that claims to be a message is read as one: the nested read then
+        # fails and the parse is reported incomplete instead of the attachment passing as a file
         a["kind"] = "msg"
+    elif ok is None:
+        a["damaged_cfb"] = True  # a damaged .doc/.xls (or unnamed) Compound File: not called a message
     elif len(d) >= 4 and int.from_bytes(d[:4], "little") == tnef.SIG:
         a["kind"] = "tnef"
     elif (a.get("name") or "").lower().rstrip(". ").endswith(".msg") or \
             (a.get("content_type") or "").lower() == "application/vnd.ms-outlook":
         a["unreadable_msg"] = True  # says it is an Outlook message, but the bytes are not one
+
+
+def att_reasons(a):
+    """Extra reasons from what parsing found: a container whose contents could not be read, or a
+    damaged Compound File. Both are held back by extract unless --include-risky."""
+    out = []
+    if a["kind"] in ("msg", "tnef") and a.get("data") and not a.get("nested"):
+        out.append("unreadable-container")
+    if a.get("damaged_cfb") or a.get("unreadable_msg"):
+        out.append("damaged-compound-file" if a.get("damaged_cfb") else "unreadable-container")
+    return out
 
 
 def _add_att(m, a):
@@ -201,6 +217,8 @@ def from_eml(data, depth=0):
 
 def _nest(m, depth):
     for i, a in enumerate(m["attachments"], 1):
+        if a.get("damaged_cfb"):
+            m["incomplete"].append("attachment %d: Compound File (Office 97-2003 or similar) could not be read" % i)
         if a.get("unreadable_msg") and a["kind"] == "file":
             m["incomplete"].append("attachment %d: looks like an Outlook message but could not be read" % i)
         if a["kind"] in ("embedded-message", "tnef", "msg") and a["data"]:

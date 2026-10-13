@@ -549,17 +549,21 @@ def _():
     assert "\ufffd" in rtfbody.to_body(cases["huge-u"])["content"]
     assert rtfbody.to_body(cases["bad-cp"])["content"].startswith("caf")
     assert rtfbody.to_body(cases["bin"])["content"].strip() == "after"
-    # MELA (uncompressed) with a nonzero CRC field is damaged; LZFu CRC mismatch too
+    # since 0.1.5 (Hamza): a bad CRC alone, with a complete decode, is a warning, not incomplete
     body = b"{\\rtf1 hi}"
     mela = struct.pack("<IIII", len(body) + 12, len(body), rtfbody.MELA, 1234) + body
     m = mailparse._new("msg")
     mailparse._rtf_body(m, mela)
-    assert m["text"] == "hi" and any("CRC" in x for x in m["incomplete"]), m
+    assert m["text"] == "hi" and not m["incomplete"] and any("CRC" in x for x in m["warnings"]), m
     bad = bytearray(make_fixtures.lzfu_literal(body))
-    bad[12] ^= 0xFF
+    bad[12] ^= 0xFF  # the CRC field only
     m = mailparse._new("msg")
     mailparse._rtf_body(m, bytes(bad))
-    assert any("CRC" in x for x in m["incomplete"]), m
+    assert m["text"] == "hi" and not m["incomplete"] and any("CRC" in x for x in m["warnings"]), m
+    cut = bytes(bad[:-3])  # CRC wrong and the stream cut short: damaged
+    m = mailparse._new("msg")
+    mailparse._rtf_body(m, cut)
+    assert m["incomplete"], m
     # output cap on a single huge text run
     out = rtfbody.to_body(b"{\\rtf1 " + b"a" * 5000 + b"}", max_out=1000)
     assert len(out["content"]) <= 1000 and out["truncated"]
@@ -780,7 +784,8 @@ def _():
         assert it[n]["risk"] == "high" and it[n]["saved_as"] is None and it[n]["skipped"].startswith("high risk"), it[n]
     assert it["real.pdf"]["saved_as"] == "real.pdf" and it["real.pdf"]["risk"] == "low", it["real.pdf"]
     assert it["odd.pdf"]["risk"] == "medium" and "content-does-not-match-extension" in it["odd.pdf"]["reasons"]
-    assert c == 1 and sorted(os.listdir(out)) == ["manifest.json", "odd.pdf", "real.pdf"], os.listdir(out)
+    assert it["odd.pdf"]["saved_as"] is None, it["odd.pdf"]  # since 0.1.5 a mismatch is held back
+    assert c == 1 and sorted(os.listdir(out)) == ["manifest.json", "real.pdf"], os.listdir(out)
     out2 = os.path.join(TMP, "magic-out2")
     c, r, _ = run("extract_attachments.py", f, out2, "--json", "--only-ext", ".pdf", "--include-risky")
     assert "fake.pdf.quarantine" in os.listdir(out2) and "fake.pdf" not in os.listdir(out2), os.listdir(out2)
@@ -792,25 +797,132 @@ def _():
     assert not m["incomplete"], m
 
 
-@test("real files: all 3 scripts give JSON without a traceback on every file in REAL_FIXTURES_DIR (optional)")
+@test("v0.1.5 (Tariq): BOM, UTF-16, whitespace, NUL or junk padding does not hide content; JS as .txt flagged")
 def _():
+    import mailsafe, base64
+    pe = bytearray(b"MZ" + b"\x00" * 0x3a + (0x80).to_bytes(4, "little") + b"\x00" * 0x40 + b"PE\x00\x00" + b"\x00" * 64)
+    cases = {
+        "bom-html.pdf": b"\xef\xbb\xbf<html><script>x()</script>",
+        "ws-shebang.pdf": b"  \r\n\t#!/bin/sh\nrm -rf ~\n",
+        "bom-shebang.txt": b"\xef\xbb\xbf#!/usr/bin/env python\n",
+        "nul-mz.pdf": b"\x00\x00\x00\x00" + bytes(pe),
+        "junk-mz.pdf": b"%%junk header here%%" + bytes(pe),
+        "u16le.txt": "\ufeff<script>new ActiveXObject('WScript.Shell')</script>".encode("utf-16-le"),
+        "u16-nobom.pdf": "#!/bin/sh\necho hi\n".encode("utf-16-le"),
+        "short.pdf": b"L\x00\x00\x00\x01\x14\x02\x00" + b"\x00" * 64,
+        "dropper.txt": b"x = new ActiveXObject('WScript.Shell'); x.Run('cmd');",
+    }
+    for n, d in cases.items():
+        r = mailsafe.content_risk(d, n)
+        assert any(x.startswith("executable-content") for x in r), (n, r)
+    for d in (b"function x(){return 1;}", b"var a = 1;\nfunction x(){return a;}\n", b"const f = () => { go(); };"):
+        assert mailsafe.content_risk(d, "a.txt") == ["script-like-text"], (d, mailsafe.content_risk(d, "a.txt"))
+    for n, d in {"note.txt": b"Hello Sara,\nthe report is ready; see you at 10.\nAli\n",
+                 "report.pdf": b"%PDF-1.7\n", "photo.png": b"\x89PNG\r\n\x1a\n" + b"\x00" * 20,
+                 "data.csv": b"name,amount\nAli,3\n", "readme.md": b"# Title\nSome text (with parens); fine.\n"}.items():
+        assert mailsafe.content_risk(d, n) == [], (n, mailsafe.content_risk(d, n))
+    def part(name, data):
+        return (b"--B\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + name.encode() + b"\r\n\r\n" + base64.encodebytes(data) + b"\r\n")
+    names = {"junk-mz.pdf": cases["junk-mz.pdf"], "plain.txt": b"var a = 1;\nfunction x(){return a;}\n",
+             "odd.pdf": b"not a pdf at all", "ok.txt": b"just a note\n"}
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + b"".join(part(n, d) for n, d in names.items()) + b"--B--\r\n")
+    f = write("padded.eml", eml)
+    out = os.path.join(TMP, "padded-out")
+    c, r, _ = run("extract_attachments.py", f, out, "--json", "--only-ext", ".pdf,.txt")
+    assert c == 1 and sorted(os.listdir(out)) == ["manifest.json", "ok.txt"], os.listdir(out)
+    assert r["skipped_risky"] == 3, r["attachments"]
+    out2 = os.path.join(TMP, "padded-out2")
+    c, r, _ = run("extract_attachments.py", f, out2, "--json", "--include-risky")
+    assert sorted(os.listdir(out2)) == ["junk-mz.pdf.quarantine", "manifest.json", "odd.pdf.quarantine",
+                                        "ok.txt", "plain.txt.quarantine"], os.listdir(out2)
+
+
+@test("real files: all 3 scripts on every file in REAL_FIXTURES_DIR: valid JSON, consistent content, known samples match (optional)")
+def _():
+    import hashlib
     d = os.environ.get("REAL_FIXTURES_DIR")
     if not d:
-        raise Skip("set REAL_FIXTURES_DIR to a folder of Outlook-saved .msg/.eml/winmail.dat/.ics files")
-    n = 0
+        raise Skip("set REAL_FIXTURES_DIR (tests/fetch_public_samples.py DEST fetches the public samples)")
+    exp = json.load(open(os.path.join(ROOT, "tests", "public_samples_expected.json"), encoding="utf-8"))["files"]
+    n = known = 0
     for k, f in enumerate(sorted(os.listdir(d))):
         p, ext = os.path.join(d, f), f.lower().rsplit(".", 1)[-1]
-        calls = []
         if ext in ("msg", "eml", "dat"):
-            calls = [("inspect_mail.py", p, "--json"),
-                     ("extract_attachments.py", p, os.path.join(TMP, "real-%d" % k), "--json")]
+            c, r, txt = run("inspect_mail.py", p, "--json")
+            assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, ("inspect", f, txt[:300])
+            if c in (0, 1) and r["ok"]:
+                for key in ("schema", "status", "complete", "incomplete", "headers", "attachments", "risks", "not_checked"):
+                    assert key in r, (f, key)
+                assert r["complete"] == (not r["incomplete"]) and (r["status"] != "ok" or r["complete"]), f
+                for a in r["attachments"]:
+                    assert a["risk"] in ("low", "medium", "high") and (a["sha256"] is None or len(a["sha256"]) == 64), (f, a)
+                e = exp.get(hashlib.sha256(open(p, "rb").read()).hexdigest())
+                if e:
+                    known += 1
+                    got = [a["name"] for a in r["attachments"] if "/" not in a["index"]]
+                    assert (r["headers"].get("subject"), got, r["complete"]) == (e["subject"], e["attachments"], e["complete"]), (f, e)
+            out = os.path.join(TMP, "real-%d" % k)
+            c, x, txt = run("extract_attachments.py", p, out, "--json")
+            assert c in (0, 1, 2, 3) and x is not None and "Traceback" not in txt, ("extract", f, txt[:300])
+            if x.get("ok") and x.get("outdir"):
+                saved = sorted(i["saved_as"] for i in x["attachments"] if i["saved_as"])
+                assert sorted(os.listdir(out)) == sorted(saved + ["manifest.json"]), (f, os.listdir(out))
+                assert all(not i["saved_as"] or not i["skipped"] for i in x["attachments"]), f
+            elif x.get("ok") is False:
+                assert not os.path.exists(out), (f, "failed run left output")
+            n += 2
         elif ext in ("ics", "vcs"):
-            calls = [("inspect_ics.py", p, "--json", "--tz", "UTC")]
-        for call in calls:
-            c, r, txt = run(*call)
-            assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, (call[0], f, txt[:300])
+            c, r, txt = run("inspect_ics.py", p, "--json", "--tz", "UTC")
+            assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, ("ics", f, txt[:300])
             n += 1
     assert n, "no .msg, .eml, .dat or .ics files in REAL_FIXTURES_DIR"
+    print("    %d script runs, %d known public samples matched" % (n, known), end="")
+
+
+@test("v0.1.5 (Hamza): unreadable containers never pass --only-ext; a damaged .doc is not a message; CRC alone warns")
+def _():
+    import base64, mailsafe
+    msg = open(FX["sample.msg"], "rb").read()
+    broken_msg = msg[:8] + b"\xff" * 600 + msg[608:2000]
+    def part(name, ctype, data):
+        return (b"--B\r\nContent-Type: " + ctype + b"\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + name + b"\r\n\r\n" + base64.encodebytes(data) + b"\r\n")
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part(b"forward.msg", b"application/vnd.ms-outlook", broken_msg)
+           + part(b"old.doc", b"application/msword", broken_msg)
+           + part(b"ok.pdf", b"application/pdf", b"%PDF-1.4\n") + b"--B--\r\n")
+    f = write("damaged-containers.eml", eml)
+    c, r, _ = run("inspect_mail.py", f, "--json")
+    k = {a["name"]: a for a in r["attachments"]}
+    assert k["forward.msg"]["kind"] == "msg" and "unreadable-container" in k["forward.msg"]["reasons"], k["forward.msg"]
+    assert k["old.doc"]["kind"] == "file" and "damaged-compound-file" in k["old.doc"]["reasons"], k["old.doc"]
+    assert k["old.doc"]["risk"] == "medium" and any("Compound File" in x for x in r["incomplete"]), r["incomplete"]
+    for flags in (["--only-ext", ".pdf"], ["--only-ext", ".pdf,.msg,.doc"], []):
+        out = os.path.join(TMP, "dc-%d" % len(os.listdir(TMP)))
+        c, x, _ = run("extract_attachments.py", f, out, "--json", "--allow-incomplete", *flags)
+        names = os.listdir(out)
+        assert sorted(names) == ["manifest.json", "ok.pdf"], (flags, names)
+    out = os.path.join(TMP, "dc-risky")
+    run("extract_attachments.py", f, out, "--json", "--allow-incomplete", "--include-risky")
+    assert sorted(os.listdir(out)) == ["forward.msg.quarantine", "manifest.json", "ok.pdf", "old.doc.quarantine"], os.listdir(out)
+    src = open(os.path.join(SCRIPTS, "extract_attachments.py"), encoding="utf-8").read()
+    assert "mailsafe._RUN" not in src and mailsafe.guarded() is not mailsafe._LOCK
+
+
+@test("v0.1.5 (Hamza): a timeout that fires right at the rename still reports the committed output")
+def _():
+    out = os.path.join(TMP, "atrename")
+    code = ("import os,sys,time,json;sys.path.insert(0,%r);sys.argv=['x',%r,%r,'--json','--timeout','0.3'];"
+            "import extract_attachments as ex;real=os.rename\n"
+            "def slow(a,b):\n    time.sleep(0.6); real(a,b); time.sleep(0.6)\n"
+            "os.rename=slow\nimport mailsafe\nsys.exit(mailsafe.finish(ex.main()))") % (SCRIPTS, FX["sample.msg"], out)
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    r = json.loads(p.stdout)
+    assert p.returncode == 1 and r["status"] == "risky-skipped" and r["saved"] == 2 and "time limit" not in p.stdout, p.stdout[:400]
+    assert os.path.isdir(out) and "manifest.json" in os.listdir(out)
+    assert not [x for x in os.listdir(TMP) if x.startswith(".extract-")], os.listdir(TMP)
 
 
 # ---------------- inspect_ics ----------------

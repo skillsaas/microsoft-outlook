@@ -58,7 +58,7 @@ def plan(m, a):
         only_ext = {x.strip().lower().lstrip(".") for x in a.only_ext.split(",") if x.strip()}
     for idx, att in walk(m):
         risk, reasons = mailsafe.attachment_risk(att["name"], att["content_type"])
-        risk, reasons = mailsafe.kind_risk(att["kind"], risk, reasons, att["data"], att["name"])
+        risk, reasons = mailsafe.kind_risk(att["kind"], risk, reasons + mailparse.att_reasons(att), att["data"], att["name"])
         it = {"index": idx, "name": mailsafe.clean_text(att["name"], 300), "kind": att["kind"],
               "size": len(att["data"] or b""), "sha256": mailparse.sha256(att["data"]) if att["data"] else None,
               "risk": risk, "reasons": reasons, "saved_as": None, "skipped": None}
@@ -66,7 +66,9 @@ def plan(m, a):
         if only is not None and idx not in only:
             it["skipped"] = "not selected (--only)"
             continue
-        if only_ext is not None and att["kind"] not in mailsafe.CONTAINER_KINDS and \
+        # a container is exempt only when its contents were read (they are filtered one by one);
+        # an unreadable container is filtered like any file, so it can never slip past the allowlist
+        if only_ext is not None and not (att["kind"] in mailsafe.CONTAINER_KINDS and att.get("nested")) and \
                 mailsafe.ext_of(att["name"] or "") not in only_ext:
             it["skipped"] = "extension not in --only-ext"
             continue
@@ -88,8 +90,12 @@ def plan(m, a):
         if it["size"] > a.max_file:
             it["skipped"] = "over --max-file"
             continue
+        held = mailsafe.HOLD_BACK & set(reasons)
         if risk == "high" and not a.include_risky:
             it["skipped"] = "high risk: not saved (use --include-risky to save as .quarantine)"
+            continue
+        if held and not a.include_risky:
+            it["skipped"] = "high risk: %s, not saved (use --include-risky to save as .quarantine)" % ", ".join(sorted(held))
             continue
         total += it["size"]
         if total > a.max_total:
@@ -98,7 +104,7 @@ def plan(m, a):
         name = mailsafe.safe_filename(att["name"], fallback)
         if att["kind"] == "embedded-message" and not os.path.splitext(name)[1]:
             name += ".eml"
-        if risk == "high":
+        if risk == "high" or held:
             name += ".quarantine"
         stem, ext = os.path.splitext(name)
         n, cand = 1, name
@@ -207,8 +213,7 @@ def main(argv=None):
                     raise FileExistsError("OUTDIR appeared while writing")
                 os.rename(tmp, out)
                 mailsafe.committed()
-                if _cleanup in mailsafe._RUN["cleanup"]:
-                    mailsafe._RUN["cleanup"].remove(_cleanup)
+                mailsafe.off_timeout(_cleanup)
         except Exception as e:
             mailsafe.off_timeout(_cleanup)
             shutil.rmtree(tmp, ignore_errors=True)

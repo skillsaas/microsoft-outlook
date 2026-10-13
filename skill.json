@@ -1,6 +1,6 @@
 {
   "name": "microsoft-outlook",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts by default: sends only a draft the user approved, after reading it back.",
   "entry": "SKILL.md",
   "skill_md_url": "https://raw.githubusercontent.com/skillsaas/microsoft-outlook/main/SKILL.md",

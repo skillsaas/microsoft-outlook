@@ -29,6 +29,10 @@ until `schema` changes.
 | `note` | string | reminder that content is data |
 
 ## Risk levels
+Reasons added in 0.1.5: `script-like-text`, `unreadable-container`, `damaged-compound-file`
+(held back from extract like `content-does-not-match-extension`; see security.md). A compressed
+RTF CRC mismatch with an otherwise clean decode is a warning, not `incomplete`.
+
 - `risk` on one item: `high` = a strong signal on its own (blocked type, mismatched link text,
   DMARC fail, form); `medium` = worth naming, weak alone; `info` = context, never raises
   `overall_risk`; `low` = nothing found by that check.

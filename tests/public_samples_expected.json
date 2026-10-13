@@ -1,0 +1,314 @@
+{
+ "note": "Expected inspect_mail.py results for the public sample files fetched by fetch_public_samples.py, keyed by SHA-256. Subjects and top-level attachment names agree with extract-msg 0.56.1 for every .msg.",
+ "files": {
+  "513a894a87de02ecbb312ada79ea19318378607bcb593ddb05ddecbade2d511f": {
+   "file": "EmailWith2Attachments.msg",
+   "subject": "E-mail with 2 attachments",
+   "attachments": [
+    "Installatie handleiding.docx",
+    "Installatiehandleiding S&I Agro.xlsx"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "59d2f6bd9287b77bc22402b302fd4aff547363545bbf744a10b106e36ca555f2": {
+   "file": "EmailWithAttachments.msg",
+   "subject": "This is the subject",
+   "attachments": [
+    "peterpan.jpg",
+    "tinkerbell.jpg"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "5cfb430688c3e96591cde82dad3cc499c7d8f1ad9ca1852dd5dd6e213d1df7b1": {
+   "file": "EmailWithISO_8859_1_From.eml",
+   "subject": "Test",
+   "attachments": [],
+   "complete": true,
+   "format": "eml"
+  },
+  "217351a4f8860921d4b3b1e7badd2d7ad29b22eddb4bb2e236118230db286cc7": {
+   "file": "EmailWithInnerMailAndAttachments.msg",
+   "subject": "Outer mail",
+   "attachments": [
+    "OUTER 1.pdf",
+    "OUTER 2.pdf",
+    "Inner mail"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "65dfb9f58cd55c4753d2690d18e4eaa34b8e36efb9fb8f578ec077c03707a329": {
+   "file": "EmailWithMsgAttachment.msg",
+   "subject": "FW: Msg Attachment Test",
+   "attachments": [
+    "Msg Attachment Test"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "80902a9a45896b6aa3c7240931f3448d97512b6730c9cfbe97e8cb8b429d76e3": {
+   "file": "EmailWithMultilineSubject.eml",
+   "subject": "One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen",
+   "attachments": [],
+   "complete": true,
+   "format": "eml"
+  },
+  "92d61b8207f415355fe1009411e4490bfa24f082eff4bfb58cc58e438131e0b8": {
+   "file": "EmailWithReactions.msg",
+   "subject": "Test read receipts",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "b496e842665ff430f3b1d9674f4653919732047fd759b8a809e4f686b3b0795c": {
+   "file": "EmailWithSpecialCharsInSubject.msg",
+   "subject": "Un sujet bien défini Àéroport mañana être ouïe électricité così próxima à Ô",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "d83b198269a322048c8695d699a60b81e1f8c1d8b2b38d47712390b3992b3671": {
+   "file": "EmailWithSpecialCharsInSubject_2.msg",
+   "subject": "Un sujet très bien défini",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "3742e69df9175aee90e2f1e3e63e9898a066cf81d2b50d54dec45ca61c5656fd": {
+   "file": "EmailWithUnknownContentDispositionParam.eml",
+   "subject": "Test unknown Content-Disposition parameter",
+   "attachments": [
+    "test.txt"
+   ],
+   "complete": true,
+   "format": "eml"
+  },
+  "e1e90f03ac3342522c1a61c36b082e27ffc4deb5ed492d1d214aeb3fed2c59f9": {
+   "file": "HtmlSampleEmail.msg",
+   "subject": "HtmlSampleEmail",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "d00c73d8e550aded13e078bf35842a3e31e01894e16bdb49355b072db9293e51": {
+   "file": "HtmlSampleEmailWithAttachment.msg",
+   "subject": "HtmlSampleEmailWithAttachment",
+   "attachments": [
+    "SampleAttachment.pdf"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "2ea2c107c18ac93f4375fecc3a16fba482336ef2f471383305d4b0e068496dba": {
+   "file": "IssueSample.eml",
+   "subject": "CC 2 of TEST BANK, NATIONAL ASSOCIATION",
+   "attachments": [
+    "Sanitized.htm"
+   ],
+   "complete": true,
+   "format": "eml"
+  },
+  "935c97bb657e395bd27cf20170a73b72b4795f967876f7221539b3c053f6f032": {
+   "file": "RtfSampleEmail.msg",
+   "subject": "RtfSampleEmail",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "95c972bfff21e393889bf55c8eaad7c862553a577965c8f8b674b0fce5cef1d8": {
+   "file": "RtfSampleEmailWithAttachment.msg",
+   "subject": "RtfSampleEmailWithAttachment",
+   "attachments": [
+    "SampleAttachment.pdf"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "fcf8a775cc2d70a9d8e98f08b83bb698506d069512f1bd1cf0e45db36be51824": {
+   "file": "RtfWithShortRussianString.msg",
+   "subject": null,
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "eb5445c17c9c8211b352b45958f144bd18978cb130a6a3670052d4e6044d6ee6": {
+   "file": "TestWithAttachments.eml",
+   "subject": "FW: Test with attachments",
+   "attachments": [
+    "hamster.jpg",
+    "elmo.jpg",
+    "xietje.jpg"
+   ],
+   "complete": true,
+   "format": "eml"
+  },
+  "6f1744aeb73d7d019db5e9e971fa709d3519141a63dc03d170ee89b4ad370788": {
+   "file": "TestWithAttachmentsAndInlines.eml",
+   "subject": "Object - subject",
+   "attachments": [
+    "Outlook-facebook.png",
+    "attachment1f.txt",
+    "attachment2f.txt",
+    null,
+    "attachment4f.txt",
+    "attached-message.eml",
+    "attached-message.eml"
+   ],
+   "complete": false,
+   "format": "eml"
+  },
+  "2c815266617495ff41ec7f9fed72e987dc8524a2a4d2dc40a2989009e202c794": {
+   "file": "TestWithInlineHavingContentDisposition.eml",
+   "subject": "Sujet %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+   "attachments": [
+    "Outlook-facebook.png",
+    "attachment.txt"
+   ],
+   "complete": true,
+   "format": "eml"
+  },
+  "3df4dd2b37a4b780bc44cfdfa277355e21290a9a8e12a455ed5f19241ce781fb": {
+   "file": "TestWithInlineHavingNoContentDisposition.eml",
+   "subject": "Sujet %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+   "attachments": [
+    "Outlook-facebook.png",
+    "attachment.txt"
+   ],
+   "complete": true,
+   "format": "eml"
+  },
+  "216189537a654462ab24aa37780ade27d859eb993a69699f80d524bfb9eb4282": {
+   "file": "TestWithInlineHavingWindows1252Fields.eml",
+   "subject": "Object - subject",
+   "attachments": [],
+   "complete": true,
+   "format": "eml"
+  },
+  "13a5037e94a00bf78aa75532287a4e3f4b58230bae54c7f851010ab50a63e144": {
+   "file": "TxtSampleEmail.msg",
+   "subject": "TxtSampleEmail",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "16c1d79495d1eb3be668a36fd59d4f6af32f04f2e9c3800f8b26cdb09e0708ed": {
+   "file": "TxtSampleEmailWithAttachment.msg",
+   "subject": "TxtSampleEmailWithAttachment",
+   "attachments": [
+    "SampleAttachment.pdf"
+   ],
+   "complete": true,
+   "format": "msg"
+  },
+  "a8aca31e8fd952b1b36699b04e1a3d58e5decae1c9d8233fa7982dfdf8e8c424": {
+   "file": "UTF-8_Test.eml",
+   "subject": "【要確認】●普通自転車（",
+   "attachments": [],
+   "complete": true,
+   "format": "eml"
+  },
+  "3c36553ded2e59a5683b5172daebb0fadb5564a8af26a1f68f9b0f60da0794f9": {
+   "file": "multi-to-to.msg",
+   "subject": "Test: multiple To recipients",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "3d5dd27a6705a0a5d3627d33f788e0b520d1d0c1ae0ad8f3a75044e734fabbe1": {
+   "file": "multi-to.msg",
+   "subject": "Test: multiple To recipients",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "2e516c4c425aa1a08e78571a0401e3521403b3e16d78a8f5ffac35d556b0b46f": {
+   "file": "rb-Swetlana Novikova.msg",
+   "subject": "Swetlana Novikova",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "06fcfd00e92da93d2a0b2d6a419de4f6b00e150fc607b8081cd4355f0c694c86": {
+   "file": "rb-contact-plain.msg",
+   "subject": "(full name) A completely bogus contact",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "6b6ac0c62c4019ee68d3adb627997f3b3cc20d21df3809d4a30a38ccb4cab8f8": {
+   "file": "rb-contact-unicode.msg",
+   "subject": "(full name) A completely bogus contact",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "5adb511618b5d53acc8f450b79ce2f29ba504875257ada81390632dabfd8c567": {
+   "file": "rb-note.msg",
+   "subject": "note sample",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "529efcef29dd7961746931af731eeed35a4b8b96e5e27040e24f788fe8dd596c": {
+   "file": "rb-qwerty_1-orig.msg",
+   "subject": "qwerty",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "fb3350dfda464e643e8216e5aab87003b024279226806a3862a9826cccc53811": {
+   "file": "rb-qwerty_2-with_custom_properties.msg",
+   "subject": "qwerty",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "e53211eed6cf7514cc33c00732832e6e53bf16784a31e6f245a8d26211aa8f9e": {
+   "file": "rb-qwerty_3.msg",
+   "subject": "qwerty",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "8d198f50a5c0cc6e60f6146c26206019ae040f476ff1db4823af9bc4a2098566": {
+   "file": "rb-test_Blammo.msg",
+   "subject": "BlammoBlammo",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "fcd191e1d66cb9a108ca34140bf546218faa6fc80880d7455544ef934a655bc7": {
+   "file": "sender_not_found_from_exchange.msg",
+   "subject": "TR: CHANTIER ST CHEF",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "9676ca02b32c15bf47bcf4295131d807a2729c2d1cddc53c4d40b57aa6c6d32b": {
+   "file": "strangeDate.msg",
+   "subject": "MSG Test File",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "fe13d8dfba467cd1a6dbc538bef43fccc8ac3fcdcba46cfda1fc15b72fe18a7f": {
+   "file": "unicode-header.msg",
+   "subject": "Test: multiple To recipients",
+   "attachments": [],
+   "complete": true,
+   "format": "msg"
+  },
+  "3c67dc70854b994e469fc14496d23bf778e718831806ebafc72436c840439f9c": {
+   "file": "unicode.msg",
+   "subject": "Test for TIF files",
+   "attachments": [
+    "import OleFileIO.tif",
+    "raised value error.tif"
+   ],
+   "complete": true,
+   "format": "msg"
+  }
+ }
+}
