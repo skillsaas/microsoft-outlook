@@ -33,7 +33,7 @@ Fields that matter:
 - Always report times in the user's zone with the zone named, and say when a meeting recurs.
 
 ### Common IANA to Windows names (from the bundled CLDR windows_zones.json)
-Graph `Prefer: outlook.timezone` and event `timeZone` accept either; Outlook shows the Windows name.
+For Graph `Prefer: outlook.timezone` and event `timeZone`, use the Windows name (the documented form).
 For any zone not listed, look it up in `scripts/windows_zones.json`; never guess.
 
 | IANA | Windows |
