@@ -1,0 +1,27 @@
+From: Sara Khan <sara@contoso.example>
+To: Ali Tanveer <ali@fabrikam.example>
+Subject: Minutes from Monday
+Date: Mon, 12 Oct 2026 10:00:00 +0500
+Message-ID: <minutes@contoso.example>
+Authentication-Results: mx.fabrikam.example; spf=pass
+ smtp.mailfrom=contoso.example; dkim=pass header.d=contoso.example; dmarc=pass
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============1975806521589090672=="
+
+--===============1975806521589090672==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi Ali,
+Minutes attached. Agenda: https://contoso.example/agenda
+Sara
+
+--===============1975806521589090672==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="minutes.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQgbWludXRlcw==
+
+--===============1975806521589090672==--

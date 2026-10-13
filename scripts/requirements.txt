@@ -1,0 +1,2 @@
+# microsoft-outlook scripts use the Python 3.9+ standard library only. Nothing to install.
+# Optional, for the cross-check test only (run with XCHECK_PYTHON): olefile, extract-msg.

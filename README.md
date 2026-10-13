@@ -1,0 +1,54 @@
+# microsoft-outlook
+
+An agent skill (`SKILL.md`) that teaches AI agents to work with Microsoft Outlook mail safely:
+read `.msg`, `.eml`, `winmail.dat` and `.ics` files offline, spot phishing, save attachments
+without running them, and drive the live mailbox through Microsoft Graph or an Office.js add-in
+without ever sending mail on its own.
+
+## Use it when
+- a user hands you a `.msg`, `.eml`, `winmail.dat` or `.ics` and asks what is in it;
+- someone asks "is this email a scam?" and you need evidence, not a guess;
+- attachments must be saved, and some are `.exe`, `.js`, `.iso`, double-extension or
+  right-to-left-override tricks;
+- a recipient got `winmail.dat` instead of attachments (TNEF);
+- a meeting invite's time is in a Windows time zone name, or recurs;
+- you automate mail or calendar with Microsoft Graph (drafts, search, calendar view, rules) and
+  must pick least-privilege scopes, now that EWS in Exchange Online is being disabled;
+- you build an Outlook add-in, or a user on new Outlook asks for a VBA macro;
+- you need AQS (Outlook search box) or KQL (Graph `$search`) syntax.
+
+## Install
+Planned, not yet published (v0.1.0 is under review):
+```bash
+npx @skillsaas/cli add microsoft-outlook      # planned
+npx skills add skillsaas/microsoft-outlook    # planned
+```
+Today: copy this folder into your agent's skills folder (for example `.claude/skills/` or
+`.agents/skills/`). No pip install: the scripts use the Python 3.9+ standard library only.
+
+Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python tests/smoke_test.py`.
+
+## Contents
+| Path | What |
+| :--- | :--- |
+| `SKILL.md` | Router: decision guide, never-do and ask-first lists, workflow, exit codes, checklist |
+| `references/` | Formats (MSG, MIME, TNEF, PST), security, Graph mail, calendar, rules and signatures, search, add-ins, recipes, fallbacks, troubleshooting |
+| `scripts/inspect_mail.py` | Read-only report for .msg, .eml, winmail.dat: headers, auth, links, HTML traps, attachments, risks |
+| `scripts/extract_attachments.py` | Save attachments (and nested ones) into a new folder with safe names; risky ones skipped or quarantined |
+| `scripts/inspect_ics.py` | Read-only report for invites: method, times with zones, recurrence, links, alarms |
+| `scripts/mailsafe.py`, `mailparse.py`, `msgcfb.py`, `tnef.py` | Helpers: text and link checks, the .msg (MS-CFB/MS-OXMSG) and TNEF (MS-OXTNEF) readers |
+| `tests/smoke_test.py`, `tests/make_fixtures.py` | Tests and the synthetic fixture builder |
+| `SECURITY.md` | Threat model and how to report a problem |
+
+## Status and maintenance
+Version 0.1.0, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
+are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
+synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
+.msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says
+what changed. Until 1.0, a minor bump may change flags or JSON fields.
+
+## Trademark
+Unofficial. Not affiliated with, endorsed by or sponsored by Microsoft. Microsoft and Outlook are
+trademarks of the Microsoft group of companies.
+
+License: MIT.

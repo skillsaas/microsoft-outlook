@@ -1,0 +1,59 @@
+{
+  "name": "microsoft-outlook",
+  "version": "0.1.0",
+  "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts only: never sends mail itself.",
+  "entry": "SKILL.md",
+  "skill_md_url": "https://raw.githubusercontent.com/skillsaas/microsoft-outlook/main/SKILL.md",
+  "repository": "https://github.com/skillsaas/microsoft-outlook",
+  "license": "MIT",
+  "platforms": {
+    "inspect_mail.py, extract_attachments.py, inspect_ics.py": "any OS with Python 3.9+, standard library only (tested on Linux only)"
+  },
+  "requires": {
+    "python": ">=3.9",
+    "pip": [],
+    "pip_optional_for_tests": ["olefile", "extract-msg"]
+  },
+  "published": {
+    "npm": false,
+    "github": false
+  },
+  "verification": {
+    "tested_on_box": [
+      "scripts/*.py (tests/smoke_test.py)",
+      ".msg fixture cross-read by olefile 0.47 and extract-msg 0.56.1",
+      "tnef.py vs tnefparse 1.4.0 on its 19 sample files",
+      "readpst 0.6.76 runs inside the documented bwrap command (no real .pst)"
+    ],
+    "documented_not_executed": [
+      "references/graph.md, calendar.md, rules-signatures.md, search.md (Microsoft Learn and Support, read 2026-10-13)",
+      "references/addins.md (names checked against @types/office-js 1.0.611)"
+    ]
+  },
+  "tested_with": {
+    "python": "3.13.5",
+    "olefile": "0.47",
+    "extract-msg": "0.56.1",
+    "tnefparse": "1.4.0",
+    "libpst": "0.6.76",
+    "os": "Linux x86_64",
+    "date": "2026-10-13"
+  },
+  "not_tested": [
+    "Outlook (any version)",
+    "real Outlook-saved .msg files",
+    "a real .pst",
+    "Microsoft Graph tenant",
+    "Office.js runtime",
+    "macOS",
+    "Windows"
+  ],
+  "safety": {
+    "sends_mail": false,
+    "network_access": false,
+    "executes_attachments": false,
+    "writes": "extract_attachments.py only, into a new folder"
+  },
+  "keywords": ["outlook", "email", "msg", "eml", "tnef", "winmail.dat", "ics", "pst", "microsoft-graph", "office-js", "phishing", "agent-skills", "skill-md"],
+  "selfcheck": "python tests/smoke_test.py"
+}

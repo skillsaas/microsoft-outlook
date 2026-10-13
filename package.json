@@ -1,0 +1,64 @@
+{
+  "name": "microsoft-outlook",
+  "version": "0.1.0",
+  "description": "Agent skill (SKILL.md) for Microsoft Outlook: inspect .msg, .eml, winmail.dat (TNEF) and .ics files offline, triage phishing, extract attachments safely, and use Microsoft Graph mail and calendar, Office.js add-ins, rules, signatures and search in new and classic Outlook. Drafts only, never sends.",
+  "license": "MIT",
+  "author": "Ali Tanveer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skillsaas/microsoft-outlook.git"
+  },
+  "homepage": "https://github.com/skillsaas/microsoft-outlook#readme",
+  "bugs": {
+    "url": "https://github.com/skillsaas/microsoft-outlook/issues"
+  },
+  "keywords": [
+    "agent-skill",
+    "agent-skills",
+    "skill-md",
+    "SKILL.md",
+    "ai-agent",
+    "claude-code",
+    "cursor",
+    "codex",
+    "gemini-cli",
+    "outlook",
+    "microsoft-outlook",
+    "new-outlook",
+    "email",
+    "msg",
+    "eml",
+    "mime",
+    "tnef",
+    "winmail.dat",
+    "ics",
+    "icalendar",
+    "pst",
+    "microsoft-graph",
+    "office-js",
+    "outlook-add-in",
+    "phishing",
+    "attachments",
+    "inbox-rules",
+    "exchange-online"
+  ],
+  "files": [
+    "SKILL.md",
+    "skill.json",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "references/",
+    "scripts/*.py",
+    "scripts/requirements.txt",
+    "tests/smoke_test.py",
+    "tests/make_fixtures.py",
+    "tests/fixtures/",
+    "tests/evals.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
