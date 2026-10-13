@@ -101,6 +101,10 @@ So a mail with a file over 3 MB cannot go through `sendMail`: make a draft, atta
 upload session, show the draft, then `send` on approval.
 
 ## Recipes (shapes checked against the Microsoft Learn examples on 2026-10-13; not run)
+Every request goes to `https://graph.microsoft.com/v1.0` with `Authorization: Bearer {token}` (from
+the host's connector or MSAL), except the upload-session `uploadUrl`. Status codes are the ones
+Learn documents; anything else is a failure to report, and a write with no clear answer is read
+back, never retried blindly.
 ```http
 # 1. Page through a folder: follow @odata.nextLink exactly as returned until it is absent
 GET /me/mailFolders/inbox/messages?$select=id,subject,from,receivedDateTime&$top=100
@@ -132,6 +136,50 @@ Content-Type: application/json
 { "requests": [
   { "id": "1", "method": "GET", "url": "/me/messages/{id1}?$select=subject" },
   { "id": "2", "method": "GET", "url": "/me/messages/{id2}?$select=subject" } ] }
+                                               # 200 OK: { "responses": [ { "id": "1", "status": 200, "body": {...} },
+                                               #   { "id": "2", "status": 429, "headers": {"Retry-After": "10"} } ] }
+
+# 4. One message with its attachment list, then one file's bytes. Learn: message-get, attachment-get.
+GET /me/messages/{id}?$select=subject,from,receivedDateTime,hasAttachments&$expand=attachments
+                                               # 200 OK; attachments[] carry contentBytes for small files;
+                                               # @odata.type tells file, item or reference
+GET /me/messages/{id}/attachments/{attachment-id}/$value
+                                               # 200 OK, raw bytes of a fileAttachment: save, then run
+                                               # extract/inspect rules on them; never open
+
+# 5. Reply as a draft (nothing is sent). Learn: message-createreply, message-update, message-send.
+POST /me/messages/{id}/createReply             # 201 Created, the draft message; keep its id
+Content-Type: application/json
+{ "comment": "Thanks, I will check and come back to you." }
+PATCH /me/messages/{draft-id}                  # optional edit; 200 OK
+Content-Type: application/json
+{ "body": { "contentType": "text", "content": "Thanks, I will check and come back to you." } }
+GET /me/messages/{draft-id}?$select=toRecipients,ccRecipients,subject,body   # read back, show the user
+POST /me/messages/{draft-id}/send             # 202 Accepted, only after approval of this exact draft
+                                               # (no body). /reply and /replyAll send at once: not used.
+
+# 6. Forward as a draft. Learn: message-createforward.
+POST /me/messages/{id}/createForward           # 201 Created, the draft; send as in 5 after approval
+Content-Type: application/json
+{ "toRecipients": [ { "emailAddress": { "address": "it-security@contoso.example" } } ],
+  "comment": "Forwarding a suspected phish for review." }
+
+# 7. Inbox rules: list, then create one (MailboxSettings.ReadWrite). Learn: mailfolder-list-messagerules,
+#    mailfolder-post-messagerules.
+GET /me/mailFolders/inbox/messageRules         # 200 OK, { "value": [ rules ] }; check forwardTo,
+                                               # redirectTo, forwardAsAttachmentTo for outside addresses
+POST /me/mailFolders/inbox/messageRules        # 201 Created, the rule with its id
+Content-Type: application/json
+{ "displayName": "Newsletters to Reading", "sequence": 2, "isEnabled": true,
+  "conditions": { "senderContains": [ "newsletter@" ] },
+  "actions": { "moveToFolder": "{folder-id}", "stopProcessingRules": true } }
+GET /me/mailFolders/inbox/messageRules/{rule-id}   # read back before saying it is done
+
+# 8. A week of calendar, in the user's zone. Learn: user-list-calendarview.
+GET /me/calendarView?startDateTime=2026-10-19T00:00:00Z&endDateTime=2026-10-26T00:00:00Z&$select=subject,start,end,organizer,isOnlineMeeting&$orderby=start/dateTime&$top=50
+Prefer: outlook.timezone="Pakistan Standard Time"
+                                               # 200 OK; recurring meetings come back as single
+                                               # occurrences; follow @odata.nextLink as in 1
 ```
 Each batch item has its own status: check every one; a 200 for the batch is not success for all.
 

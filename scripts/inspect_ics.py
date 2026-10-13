@@ -2,7 +2,7 @@
 """Inspect an iCalendar file (.ics, .vcs or a text/calendar part) without acting on it.
 Read-only. Standard library only (zoneinfo for --tz).
 
-Usage: python inspect_ics.py FILE [--json] [--tz Asia/Karachi] [--show-targets] [--max-events N]
+Usage: python inspect_ics.py FILE [--json] [--tz Asia/Karachi] [--show-targets] [--max-events N] [--allow-incomplete]
 
 Reports METHOD (REQUEST, CANCEL, REPLY, PUBLISH), each VEVENT and VTODO: UID, SEQUENCE, summary,
 start and end with their TZID, RRULE as written (not expanded), EXDATE and RECURRENCE-ID counts,
@@ -15,8 +15,12 @@ VTIMEZONE rules in the file are not evaluated. Local times that fall in a daylig
 
 Never accepts, declines, or forwards anything: replying to a REQUEST sends mail from the user.
 
-Exit codes: 0 "ok" parsed; 1 "risk-threshold" (--fail-on-risk level reached); 2 "error" (not
-iCalendar or corrupt); 3 "refused" (over --max-bytes, default 10 MB, --max-events, or --timeout).
+Incomplete-parse policy (same in every script): a line that cannot be parsed, an END that matches
+no BEGIN, or a component left open is skipped and listed in "incomplete"; the rest is reported
+with "complete": false, status "incomplete" and exit 1 (0 with --allow-incomplete).
+
+Exit codes: 0 "ok" parsed; 1 "risk-threshold" (--fail-on-risk level reached) or "incomplete";
+2 "error" (not iCalendar); 3 "refused" (over --max-bytes, default 10 MB, --max-events, or --timeout).
 """
 import datetime
 import os
@@ -119,10 +123,15 @@ def parse(text, max_components=5000):
     lines = unfold(text)
     if not lines or lines[0].upper() != "BEGIN:VCALENDAR":
         raise IcsError("not iCalendar (first line is not BEGIN:VCALENDAR)")
-    root = {"type": "VCALENDAR", "props": [], "children": []}
-    stack, count = [root], 0
-    for ln in lines[1:]:
-        name, params, value = parse_line(ln)
+    root = {"type": "VCALENDAR", "props": [], "children": [], "problems": []}
+    stack, count, bad = [root], 0, root["problems"]
+    for no, ln in enumerate(lines[1:], 2):
+        try:
+            name, params, value = parse_line(ln)
+        except IcsError as e:  # one bad line is skipped and reported, not the whole invite failed
+            if len(bad) < 50:
+                bad.append("line %d skipped: %s" % (no, e))
+            continue
         if name == "BEGIN":
             count += 1
             if count > max_components:
@@ -136,10 +145,18 @@ def parse(text, max_components=5000):
             if len(stack) == 1 or stack[-1]["type"] != value.upper():
                 if value.upper() == "VCALENDAR" and len(stack) == 1:
                     break
-                raise IcsError("END:%s does not match BEGIN:%s" % (value, stack[-1]["type"]))
+                types = [c["type"] for c in stack]
+                if value.upper() in types[1:]:
+                    while stack[-1]["type"] != value.upper():  # close the unclosed inner components
+                        bad.append("line %d: BEGIN:%s was never closed" % (no, stack.pop()["type"]))
+                else:
+                    bad.append("line %d skipped: END:%s does not match BEGIN:%s" % (no, value, stack[-1]["type"]))
+                    continue
             stack.pop()
         else:
             stack[-1]["props"].append((name, params, value))
+    for c in stack[1:]:
+        bad.append("BEGIN:%s was never closed (file cut off?)" % c["type"])
     return root
 
 
@@ -159,6 +176,14 @@ def when(params, value, tz):
         return None
     d = {"value": value, "tzid": params.get("TZID") if params else None,
          "all_day": (params or {}).get("VALUE") == "DATE" or bool(re.fullmatch(r"\d{8}", value))}
+    ok = re.fullmatch(r"\d{8}(T\d{6}Z?)?", value)
+    if ok:
+        try:
+            datetime.datetime.strptime(value[:8], "%Y%m%d")
+        except ValueError:
+            ok = None
+    if not ok:  # with or without --tz: an agent must not read "2026" as a real start time
+        d["note"] = "not a valid RFC 5545 date or date-time (expected YYYYMMDD or YYYYMMDDTHHMMSS[Z])"
     if tz and zoneinfo and not d["all_day"]:
         m = re.fullmatch(r"(\d{8}T\d{6})(Z?)", value)
         if m:
@@ -276,6 +301,7 @@ def _main(argv=None):
     ap.add_argument("--max-bytes", type=int, default=10 * 1024 * 1024)
     ap.add_argument("--max-events", type=int, default=5000)
     ap.add_argument("--timeout", type=float, default=60, help="wall-clock seconds, 0 for none")
+    ap.add_argument("--allow-incomplete", action="store_true", help="exit 0 for a partial parse (still reported)")
     ap.add_argument("--version", action="version", version=mailsafe.VERSION)
     a = ap.parse_args(argv)
     mailsafe.watchdog(a.timeout, a.json)
@@ -332,7 +358,8 @@ def _main(argv=None):
                       "detail": "accepting or declining sends a reply as the user: ask first"})
     overall = max([r["risk"] for r in risks], key=lambda r: ORDER[r], default="low")
     overall = "low" if overall == "info" else overall
-    r = {"ok": True, "status": "ok", "error": None, "complete": True, "incomplete": [], "file": os.path.basename(a.file), "method": method,
+    inc = cal["problems"]
+    r = {"ok": True, "status": "incomplete" if inc else "ok", "error": None, "complete": not inc, "incomplete": inc, "file": os.path.basename(a.file), "method": method,
          "prodid": mailsafe.clean_text(first(cal, "PRODID")[1], 200), "timezones": tzids,
          "events": events, "risks": risks, "overall_risk": overall,
          "not_checked": ["RRULE occurrences are not expanded", "VTIMEZONE rules are not evaluated (zone names are used)",
@@ -348,10 +375,12 @@ def _main(argv=None):
                 i, e["summary"], s.get("value"), (" " + s["tzid"]) if s.get("tzid") else "",
                 (" -> " + s["converted"]) if s.get("converted") else "",
                 (e["organizer"] or {}).get("address"), e["attendee_count"], (" | RRULE " + e["rrule"]) if e["rrule"] else ""))
+        if r["incomplete"]:
+            out.append("PARTIAL: %d problem(s): %s" % (len(r["incomplete"]), "; ".join(r["incomplete"][:5])))
         out.append("risks (overall %s):" % r["overall_risk"])
         out += ["  - %s %s %s" % (k["risk"], k["kind"], k.get("detail", "")) for k in r["risks"]]
         return "\n".join(out)
-    code = 0
+    code = 1 if inc and not a.allow_incomplete else 0
     if a.fail_on_risk and ORDER[overall] >= ORDER[a.fail_on_risk]:
         r["status"], code = "risk-threshold", 1
     mailsafe.emit(r, a.json, human)

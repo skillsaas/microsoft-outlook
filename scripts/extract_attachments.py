@@ -185,22 +185,30 @@ def main(argv=None):
             return ("partial output folder %s removed" % os.path.basename(tmp)) if not os.path.exists(tmp) \
                 else ("could not remove partial output folder %s: delete it by hand" % tmp)
         mailsafe.on_timeout(_cleanup)
+        # Atomic commit: each write and the final rename run under the watchdog's lock, so a timeout
+        # lands only between steps (cleanup removes the temp folder, nothing is left) or, after the
+        # rename, is ignored and the full result is reported. Never "nothing completed" with files kept.
         try:
             for it in saved:
-                fd = os.open(os.path.join(tmp, it["saved_as"]),
-                             os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-                with os.fdopen(fd, "wb") as f:
-                    f.write(it["_data"])
+                with mailsafe.guarded():
+                    fd = os.open(os.path.join(tmp, it["saved_as"]),
+                                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+                    with os.fdopen(fd, "wb") as f:
+                        f.write(it["_data"])
             man = [{k: v for k, v in i.items() if k != "_data"} for i in items]
-            fd = os.open(os.path.join(tmp, "manifest.json"),
-                         os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump({"source": os.path.basename(a.file), "complete": not inc, "incomplete": inc,
-                           "attachments": man}, f, indent=2, ensure_ascii=False)
-            if os.path.lexists(out):
-                raise FileExistsError("OUTDIR appeared while writing")
-            os.rename(tmp, out)
-            mailsafe.off_timeout(_cleanup)
+            with mailsafe.guarded():
+                fd = os.open(os.path.join(tmp, "manifest.json"),
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump({"source": os.path.basename(a.file), "complete": not inc, "incomplete": inc,
+                               "attachments": man}, f, indent=2, ensure_ascii=False)
+            with mailsafe.guarded():
+                if os.path.lexists(out):
+                    raise FileExistsError("OUTDIR appeared while writing")
+                os.rename(tmp, out)
+                mailsafe.committed()
+                if _cleanup in mailsafe._RUN["cleanup"]:
+                    mailsafe._RUN["cleanup"].remove(_cleanup)
         except Exception as e:
             mailsafe.off_timeout(_cleanup)
             shutil.rmtree(tmp, ignore_errors=True)

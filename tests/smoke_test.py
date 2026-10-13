@@ -684,18 +684,98 @@ def _():
     assert "B" in b["content"] and "\ufffd" not in b["content"], b
 
 
-@test("real files: every file in REAL_FIXTURES_DIR gives JSON without a traceback (optional)")
+@test("v0.1.3 (Hamza): unclosed <a href> is a link; cut-off RTF and a damaged attached .msg are incomplete")
+def _():
+    import mailparse, rtfbody, base64
+    links, f = mailparse.html_scan('<p>Pay now <a href="http://203.0.113.9/login">your bank')
+    assert any("203.0.113.9" in l["href"] for l in links), links
+    links, f = mailparse.html_scan('<a href="https://a.example/">one <a href="http://198.51.100.7/">two</a>')
+    assert len(links) == 2, links
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: text/html\r\n\r\n"
+           b'<a href="http://203.0.113.9/login">Sign in')
+    c, r, _ = run("inspect_mail.py", write("unclosed-a.eml", eml), "--json")
+    assert any(l["host"] == "203.0.113.9" and "ip-host" in l["reasons"] for l in r["links"]), r["links"]
+    assert rtfbody.to_body(b"{\\rtf1 {\\b cut off")["truncated"]
+    m = mailparse._new("msg")
+    mailparse._rtf_body(m, make_fixtures.lzfu_literal(b"{\\rtf1 ok \\bin100 xy}"))
+    assert m["incomplete"], m
+    msg = open(FX["sample.msg"], "rb").read()
+    broken = msg[:8] + b"\xff" * 600 + msg[608:2000]
+    part = (b"--B\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n"
+            b"Content-Disposition: attachment; filename=x.bin\r\n\r\n" + base64.encodebytes(broken) + b"\r\n")
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part + b"--B--\r\n")
+    c, r, _ = run("inspect_mail.py", write("damaged-att.eml", eml), "--json")
+    assert c == 1 and r["complete"] is False and r["status"] == "incomplete", (c, r["incomplete"])
+    part = (b"--B\r\nContent-Type: application/vnd.ms-outlook\r\nContent-Transfer-Encoding: base64\r\n"
+            b"Content-Disposition: attachment; filename=a.msg\r\n\r\n" + base64.encodebytes(b"\x00" * 3000) + b"\r\n")
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part + b"--B--\r\n")
+    c, r, _ = run("inspect_mail.py", write("zeroed-msg.eml", eml), "--json")
+    assert c == 1 and any("could not be read" in x for x in r["incomplete"]), r["incomplete"]
+    links, f = mailparse.html_scan(rtfbody.to_body(
+        b"{\\rtf1\\fromhtml1 {\\*\\htmltag84 <a href=\"http://evil.example/\">}click}")["content"])
+    assert any("evil.example" in l["href"] for l in links), links
+
+
+@test("v0.1.3 (Hamza): extract commit is atomic under --timeout; ics bad line skipped, incomplete; escapes scrubbed")
+def _():
+    import mailsafe
+    # once committed, the watchdog stays quiet and the real result is printed
+    code = ("import sys,time;sys.path.insert(0,%r);import mailsafe as m;m.watchdog(0.2,True);"
+            "m.committed();time.sleep(0.5);m.emit({'ok':True,'status':'ok','error':None},True,str);"
+            "sys.exit(m.finish(0))") % SCRIPTS
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30)
+    assert p.returncode == 0 and '"ok"' in p.stdout and "time limit" not in p.stdout, p.stdout
+    # sweep timeouts across the write phase: never a leftover temp folder, never "refused" with files kept
+    parts = b"".join(b"--B\r\nContent-Disposition: attachment; filename=f%d.txt\r\n\r\n%s\r\n"
+                     % (i, b"x" * 300000) for i in range(40))
+    f = write("race.eml", b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+              + parts + b"--B--\r\n")
+    for k, t in enumerate(("0.05", "0.1", "0.15", "0.2", "0.3", "0.5")):
+        parent = os.path.join(TMP, "race%d" % k)
+        os.mkdir(parent)
+        c, r, _ = run("extract_attachments.py", f, os.path.join(parent, "o"), "--json", "--timeout", t)
+        left = os.listdir(parent)
+        assert not [x for x in left if x.startswith(".extract-")], (t, left)
+        if c == 3:
+            assert left == [], (t, left)
+        else:
+            assert c == 0 and r["saved"] == 40 and len(os.listdir(os.path.join(parent, "o"))) == 41, (t, c)
+    ics = ("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:1\r\nSUMMARY:Sync\r\n"
+           "garbage line \x1b[31mred\r\nDTSTART:20261020T100000Z\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+    p_ = write("badline.ics", ics.encode())
+    c, r, txt = run("inspect_ics.py", p_, "--json")
+    assert c == 1 and r["complete"] is False and len(r["incomplete"]) == 2 and r["events"][0]["summary"] == "Sync", (c, r)
+    c, r, _ = run("inspect_ics.py", p_, "--json", "--allow-incomplete")
+    assert c == 0 and r["status"] == "incomplete"
+    c, r, txt = run("inspect_ics.py", write("cut.ics", b"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:x\r\n"), "--json")
+    assert c == 1 and "never closed" in r["incomplete"][0], r
+    c, r, _ = run("inspect_ics.py", write("short.ics", b"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:2026\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"), "--json")
+    assert "not a valid" in r["events"][0]["start"]["note"], r["events"][0]
+    d = mailsafe._scrub({"error": "bad \x1b[2Jname\u202e", "incomplete": ["x\x07y"]})
+    assert "\x1b" not in d["error"] and "\u202e" not in d["error"] and d["incomplete"] == ["xy"], d
+
+
+@test("real files: all 3 scripts give JSON without a traceback on every file in REAL_FIXTURES_DIR (optional)")
 def _():
     d = os.environ.get("REAL_FIXTURES_DIR")
     if not d:
-        raise Skip("set REAL_FIXTURES_DIR to a folder of Outlook-saved .msg/.eml/winmail.dat files")
+        raise Skip("set REAL_FIXTURES_DIR to a folder of Outlook-saved .msg/.eml/winmail.dat/.ics files")
     n = 0
-    for f in sorted(os.listdir(d)):
-        if f.lower().rsplit(".", 1)[-1] in ("msg", "eml", "dat"):
-            c, r, txt = run("inspect_mail.py", os.path.join(d, f), "--json", "--allow-incomplete")
-            assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, (f, txt[:300])
+    for k, f in enumerate(sorted(os.listdir(d))):
+        p, ext = os.path.join(d, f), f.lower().rsplit(".", 1)[-1]
+        calls = []
+        if ext in ("msg", "eml", "dat"):
+            calls = [("inspect_mail.py", p, "--json"),
+                     ("extract_attachments.py", p, os.path.join(TMP, "real-%d" % k), "--json")]
+        elif ext in ("ics", "vcs"):
+            calls = [("inspect_ics.py", p, "--json", "--tz", "UTC")]
+        for call in calls:
+            c, r, txt = run(*call)
+            assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, (call[0], f, txt[:300])
             n += 1
-    assert n, "no .msg, .eml or .dat files in REAL_FIXTURES_DIR"
+    assert n, "no .msg, .eml, .dat or .ics files in REAL_FIXTURES_DIR"
 
 
 # ---------------- inspect_ics ----------------
@@ -728,11 +808,12 @@ def _():
     assert any(x.get("scheme") == "file" for x in r["events"][0]["attachments"])
 
 
-@test("ics: not iCalendar, END mismatch exit 2; too many events, too big exit 3; bad --tz exit 2")
+@test("ics: not iCalendar exit 2, END mismatch incomplete (exit 1); too many events, too big exit 3; bad --tz exit 2")
 def _():
     assert run("inspect_ics.py", FX["clean.eml"], "--json")[0] == 2
     p = write("mismatch.ics", b"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VTODO\r\nEND:VCALENDAR\r\n")
-    assert run("inspect_ics.py", p, "--json")[0] == 2
+    c, r, _ = run("inspect_ics.py", p, "--json")
+    assert c == 1 and r["complete"] is False and r["incomplete"], r  # since 0.1.3: skipped and reported
     many = "BEGIN:VCALENDAR\r\n" + "BEGIN:VEVENT\r\nUID:x\r\nEND:VEVENT\r\n" * 20 + "END:VCALENDAR\r\n"
     assert run("inspect_ics.py", write("many.ics", many.encode()), "--max-events", "10", "--json")[0] == 3
     assert run("inspect_ics.py", FX["invite.ics"], "--max-bytes", "100", "--json")[0] == 3

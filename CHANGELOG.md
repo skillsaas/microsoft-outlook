@@ -8,7 +8,14 @@
 - New risk reason `content-type-mismatch`: a harmless declared type with an active extension (haiku).
 - security.md: operational test for which Authentication-Results to trust, and "unknown from this file" (luna); what the reply-to check will and will not catch (haiku); extraction behaviour for existing folders and interrupted runs (luna).
 - formats.md: known-risky variants table (haiku). graph.md and addins.md: "documented, not run" banner (mini).
-- Tests: 45 plus 4 optional (cross-check, TNEF corpus, real files, npm packed-artifact check).
+- Hamza round 3:
+  - HIGH: an unclosed `<a href>` (end of input, or a second `<a>` before `</a>`) is now recorded as a link, also in RTF-derived HTML; before, one missing tag hid the link from triage.
+  - Extract commit is atomic under `--timeout`: every file write and the final rename hold the watchdog's lock, so a timeout either removes the temp folder (exit 3, nothing left) or, after the rename, is ignored and the real result is printed.
+  - Truncated RTF (groups left open, `\bin` past the end) and an attached message that cannot be read (damaged Compound File, or named `.msg` / typed `vnd.ms-outlook` but not one) give `complete: false`. This makes the 0.1.2 RTF truncation line true.
+  - inspect_ics.py follows the incomplete policy: bad lines, unmatched END and unclosed components are skipped and listed (exit 1, `--allow-incomplete` for 0); malformed dates such as `DTSTART:2026` get a note.
+  - Error and incomplete texts scrubbed of terminal escapes and control characters. REAL_FIXTURES_DIR runs all three scripts, .ics included.
+- graph.md: complete recipes with headers, bodies and statuses: message with attachments, attachment bytes, createReply and createForward drafts then approved send, inbox rules list and create with read-back, calendarView in the user's zone, batch responses (perplexity, Hamza).
+- Tests: 47 plus 4 optional (cross-check, TNEF corpus, real files, npm packed-artifact check).
 
 ## 0.1.2 (2026-10-13)
 

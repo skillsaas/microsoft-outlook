@@ -14,6 +14,7 @@ import email.policy
 import email.utils
 import hashlib
 import re
+import struct
 from html.parser import HTMLParser
 
 import msgcfb
@@ -48,10 +49,15 @@ def _promote(a):
     if a["kind"] != "file" or not a["data"]:
         return
     d = a["data"]
-    if d[:8] == msgcfb.SIG and msgcfb.is_msg(d):
+    if d[:8] == msgcfb.SIG and msgcfb.is_msg(d) is not False:
+        # a damaged Compound File (None) is treated as a possible .msg: the nested read then fails and
+        # the parse is reported incomplete instead of the attachment passing as an ordinary file
         a["kind"] = "msg"
     elif len(d) >= 4 and int.from_bytes(d[:4], "little") == tnef.SIG:
         a["kind"] = "tnef"
+    elif (a.get("name") or "").lower().rstrip(". ").endswith(".msg") or \
+            (a.get("content_type") or "").lower() == "application/vnd.ms-outlook":
+        a["unreadable_msg"] = True  # says it is an Outlook message, but the bytes are not one
 
 
 def _add_att(m, a):
@@ -195,13 +201,16 @@ def from_eml(data, depth=0):
 
 def _nest(m, depth):
     for i, a in enumerate(m["attachments"], 1):
+        if a.get("unreadable_msg") and a["kind"] == "file":
+            m["incomplete"].append("attachment %d: looks like an Outlook message but could not be read" % i)
         if a["kind"] in ("embedded-message", "tnef", "msg") and a["data"]:
             if depth + 1 > MAX_DEPTH:
                 m["incomplete"].append("attachment %d: nested message not read (depth over %d)" % (i, MAX_DEPTH))
                 continue
             try:
                 a["nested"] = parse_bytes(a["data"], depth + 1)
-            except (MailError, msgcfb.CfbError, tnef.TnefError, rtfbody.RtfError) as e:
+            except (MailError, msgcfb.CfbError, tnef.TnefError, rtfbody.RtfError,
+                    struct.error, IndexError, ValueError, RecursionError) as e:
                 m["incomplete"].append("attachment %d: nested %s not read: %s" % (i, a["kind"], e))
     _bubble(m)
 
@@ -369,6 +378,9 @@ class _Html(HTMLParser):
         style = a.get("style", "").replace(" ", "").lower()
         if "display:none" in style or "visibility:hidden" in style or "font-size:0" in style:
             self.f["hidden_blocks"] += 1
+        if tag == "a" and self.cur is not None:
+            self.links.append(self.cur)  # an unclosed <a> before a new one is still a link
+            self.cur = None
         if tag == "a" and "href" in a:
             self.cur = {"href": a["href"], "text": ""}
         elif tag == "area" and "href" in a:
@@ -408,6 +420,9 @@ def html_scan(html):
         p.close()
     except Exception:  # html.parser is lenient; any surprise is reported, not raised
         p.f["parse_error"] = True
+    if p.cur is not None:  # an <a href> never closed (end of input) is still a link
+        p.links.append(p.cur)
+        p.cur = None
     return p.links, p.f
 
 

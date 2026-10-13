@@ -273,5 +273,7 @@ def _to_body(rtf, max_out):
             pend.extend(text)
             size += len(text)
     flush()
+    if stack and not truncated:
+        truncated.append("RTF stream ends with %d group(s) still open: body cut off" % len(stack))
     return {"kind": "html" if fromhtml else "text", "content": "".join(out), "warnings": warnings,
             "truncated": truncated[:1]}

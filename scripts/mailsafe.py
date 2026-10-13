@@ -245,11 +245,36 @@ def urls_in_text(s, cap=500):
 # One result per run: the main thread and the --timeout watchdog both print through this lock,
 # and whichever comes first wins, so output is never two JSON documents or a torn one.
 _LOCK = threading.Lock()
-_RUN = {"done": False, "cleanup": [], "timer": None}
+_RUN = {"done": False, "cleanup": [], "timer": None, "committed": False}
+
+
+def guarded():
+    """Hold this around each write step that the watchdog must not interrupt halfway (one file, the
+    final rename). The watchdog takes the same lock, so it fires only between steps, and its cleanup
+    never races a write in progress. Do not call emit or fail while holding it."""
+    return _LOCK
+
+
+def committed():
+    """Call while holding guarded() right after the output is renamed into place: from then on the
+    timeout is ignored and the normal result (which reports the saved files) is printed."""
+    _RUN["committed"] = True
+
+
+def _scrub(d):
+    """Error and incomplete texts can quote file bytes (names, header values): strip terminal escape
+    codes, other controls, bidi and zero-width characters before they reach a terminal or a log."""
+    if d.get("error") is not None:
+        d["error"] = clean_text(str(d["error"]).replace("\n", " "), 2000)
+    for k in ("incomplete", "warnings", "cleanup"):
+        if isinstance(d.get(k), list):
+            d[k] = [clean_text(str(x).replace("\n", " "), 1000) for x in d[k]]
+    return d
 
 
 def emit(obj, as_json, human):
     """Print JSON or the human text. obj must have ok and error."""
+    _scrub(obj)
     with _LOCK:
         if _RUN["done"]:
             return
@@ -264,6 +289,7 @@ def emit(obj, as_json, human):
 def fail(as_json, code, msg, **extra):
     d = {"ok": False, "status": "refused" if code == EXIT_REFUSED else "error", "error": msg}
     d.update(extra)
+    _scrub(d)
     with _LOCK:
         if not _RUN["done"]:
             _RUN["done"] = True
@@ -316,8 +342,8 @@ def watchdog(seconds, as_json):
 
     def fire():
         with _LOCK:
-            if _RUN["done"]:
-                return  # the result is already out; the main thread is exiting normally
+            if _RUN["done"] or _RUN["committed"]:
+                return  # the result is out, or the output is committed and its result follows
             _RUN["done"] = True
             notes = []
             try:
@@ -332,6 +358,7 @@ def watchdog(seconds, as_json):
                      "error": "time limit of %gs reached (--timeout); nothing was completed" % seconds}
                 if notes:
                     d["cleanup"] = notes
+                _scrub(d)
                 _print_fail(as_json, d)
             finally:
                 os._exit(EXIT_REFUSED)

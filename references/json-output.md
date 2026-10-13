@@ -46,8 +46,13 @@ until `schema` changes.
 ## Incomplete-parse policy (all scripts, since 0.1.2)
 A partial parse exits 1 with status `incomplete` and the gaps in `incomplete`. `inspect_mail.py`
 still prints the whole report; `extract_attachments.py` writes nothing. `--allow-incomplete`
-gives exit 0 (inspect) or saves what was read (extract); `complete` stays false. `inspect_ics.py`
-has no partial mode: it parses the whole file or exits 2 or 3, and always reports `complete: true`.
+gives exit 0 (inspect) or saves what was read (extract); `complete` stays false. Since 0.1.3
+`inspect_ics.py` follows it too: a line without `:`, an END that matches no BEGIN, or a component
+left open is skipped and listed; the rest of the invite is still reported. Truncated RTF (groups
+left open, `\bin` past the end) and an attached message that cannot be read are incomplete too.
+Error and `incomplete` texts are scrubbed of terminal escape codes and other control characters.
+`extract_attachments.py` commits atomically: a `--timeout` either leaves nothing (exit 3) or,
+once the folder is renamed into place, is ignored and the normal result is printed.
 
 ## Chaining the scripts (decision table for an agent)
 | Result | Next step |

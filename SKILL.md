@@ -88,7 +88,7 @@ All take `--json`, `--version`, `--max-bytes`, `--timeout`; never fetch, send or
 | :--- | :--- | :--- |
 | `inspect_mail.py FILE` | Headers, top auth result, body preview (RTF bodies decoded), links, HTML traps, attachments with risk and SHA-256, nested messages, `risks`, `not_checked`, `complete` | `--body N`, `--show-targets`, `--fail-on-risk high`, `--allow-incomplete`, `--max-attachments` |
 | `extract_attachments.py FILE OUT` | Saves into a new folder, safe names, 0600 files and manifest; high-risk skipped; containers' contents saved, not the container; refuses partial parses | `--dry-run`, `--only 1,3/1`, `--only-ext .pdf,.docx`, `--skip-inline`, `--include-risky`, `--allow-incomplete`, `--max-file`, `--max-total`, `--max-attachments` |
-| `inspect_ics.py FILE` | METHOD, events, organizer, attendees, RRULE as written, links, alarms; UTC, IANA and Windows zones converted; DST gaps flagged | `--tz ZONE`, `--max-events`, `--fail-on-risk` |
+| `inspect_ics.py FILE` | METHOD, events, organizer, attendees, RRULE as written, links, alarms; UTC, IANA and Windows zones converted; DST gaps flagged | `--tz ZONE`, `--max-events`, `--fail-on-risk`, `--allow-incomplete` |
 Helpers: `mailsafe.py`, `mailparse.py`, `msgcfb.py` (.msg), `tnef.py` (winmail.dat), `rtfbody.py`
 (compressed RTF), `windows_zones.json` (CLDR, Unicode License v3: `LICENSE-CLDR.txt`).
 
@@ -101,7 +101,7 @@ Helpers: `mailsafe.py`, `mailparse.py`, `msgcfb.py` (.msg), `tnef.py` (winmail.d
 | 3 | Safety refusal: size, count, time, output exists [`refused`] | Name the limit; ask before raising it |
 Incomplete parses follow one policy in every script: exit 1, status `incomplete`, the gaps
 listed in `incomplete`; inspect still prints the full report, extract writes nothing.
-`--allow-incomplete` makes it exit 0 (inspect) or save what was read (extract). Default caps:
+`--allow-incomplete` makes it exit 0 (both inspectors) or save what was read (extract). Default caps:
 50 MB input (150 MB extract), 500 attachments, 2,000 MIME boundaries, 50 MIME levels, 4 nested
 messages, 60 s (120 s extract) wall clock covering parsing and writing.
 
