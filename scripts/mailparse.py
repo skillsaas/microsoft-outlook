@@ -41,6 +41,33 @@ def _new(fmt):
             "warnings": [], "flags": [], "incomplete": []}
 
 
+_MAIL_HDRS = {b"from", b"to", b"cc", b"subject", b"date", b"message-id", b"mime-version", b"received",
+              b"return-path", b"reply-to", b"content-type", b"x-mailer", b"delivered-to"}
+_KEY_HDRS = {b"from", b"date", b"message-id", b"received", b"mime-version", b"subject"}
+_HDR_LINE = re.compile(rb"^([!-9;-~]+):")
+
+
+def looks_like_mail(d):
+    """True when the bytes start with an RFC 822 header block: at least three known mail headers,
+    two of them From, Date, Message-ID, Received, MIME-Version or Subject, every line a header or
+    a continuation, ended by a blank line. Strict on purpose, so notes with "Key: value" lines and
+    HTTP or YAML text stay ordinary files."""
+    head = d[:16384].lstrip(b"\r\n\t ")
+    end = re.search(rb"\r?\n\r?\n", head)
+    if not end:
+        return False
+    names = []
+    for line in head[:end.start()].splitlines():
+        if line[:1] in (b" ", b"\t") and names:
+            continue
+        m = _HDR_LINE.match(line)
+        if not m:
+            return False
+        names.append(m.group(1).lower())
+    known = {n for n in names if n in _MAIL_HDRS}
+    return len(known) >= 3 and len(known & _KEY_HDRS) >= 2
+
+
 def _promote(a):
     """An attachment whose bytes are an Outlook message or TNEF is read as one, whatever its
     name or MIME type says (a .msg sent as application/octet-stream, a renamed winmail.dat).
@@ -60,6 +87,11 @@ def _promote(a):
         a["damaged_cfb"] = True  # a damaged .doc/.xls (or unnamed) Compound File: not called a message
     elif len(d) >= 4 and int.from_bytes(d[:4], "little") == tnef.SIG:
         a["kind"] = "tnef"
+    elif looks_like_mail(d):
+        # an .eml sent as application/octet-stream or renamed (invoice.pdf): read it as a message,
+        # so its own attachments are listed, risk-checked and filtered like any others
+        a["kind"] = "embedded-message"
+        a["by_content"] = True
     elif (a.get("name") or "").lower().rstrip(". ").endswith(".msg") or \
             (a.get("content_type") or "").lower() == "application/vnd.ms-outlook":
         a["unreadable_msg"] = True  # says it is an Outlook message, but the bytes are not one
@@ -69,8 +101,10 @@ def att_reasons(a):
     """Extra reasons from what parsing found: a container whose contents could not be read, or a
     damaged Compound File. Both are held back by extract unless --include-risky."""
     out = []
-    if a["kind"] in ("msg", "tnef") and a.get("data") and not a.get("nested"):
+    if (a["kind"] in ("msg", "tnef") or a.get("by_content")) and a.get("data") and not a.get("nested"):
         out.append("unreadable-container")
+    if a.get("by_content") and not (a.get("name") or "").lower().rstrip(". ").endswith(".eml"):
+        out.append("mail-message-by-content")
     if a.get("damaged_cfb") or a.get("unreadable_msg"):
         out.append("damaged-compound-file" if a.get("damaged_cfb") else "unreadable-container")
     return out
@@ -94,6 +128,42 @@ def sniff(data):
     if re.match(rb"(?i)^(from |[!-9;-~]+:)", head):
         return "eml"
     return None
+
+
+_UU_BEGIN = re.compile(rb"(?m)^begin(-base64)? +[0-7]{3,4} +([^\r\n]{1,255}?)[ \t]*\r?\n")
+_UU_LINE = re.compile(rb"[ -`]{2,61}\r?\n")
+_B64_LINE = re.compile(rb"[A-Za-z0-9+/=]{4,76}\r?\n")
+
+
+def uu_blocks(data):
+    """Declared file names of uuencoded (or begin-base64) blocks in text: "begin 644 name" followed
+    by at least one encoded line. Some mail clients decode these into attachments; this skill
+    does not, so they are reported instead."""
+    out = []
+    for m in _UU_BEGIN.finditer(data[:LIMITS.get("max_scan", 16 * 1024 * 1024)]):
+        line = (_B64_LINE if m.group(1) else _UU_LINE).match(data, m.end())
+        if line:
+            out.append(m.group(2).decode("utf-8", "replace").strip())
+        if len(out) >= 50:
+            break
+    return out
+
+
+def uu_scan(m, prefix=""):
+    """(where, declared name) for uuencoded blocks in the body text and in text attachments,
+    nested messages included."""
+    found = []
+    for src in (m.get("text"), m.get("html")):
+        if src:
+            found += [(prefix + "body", n) for n in uu_blocks(src.encode("utf-8", "replace") if isinstance(src, str) else src)]
+    for i, a in enumerate(m["attachments"], 1):
+        idx = "%s%d" % (prefix, i)
+        if a["kind"] == "file" and a["data"] and ((a.get("content_type") or "").startswith("text/") or
+                                                  mailsafe.ext_of(a.get("name") or "") in mailsafe.TEXT_EXTS):
+            found += [(idx, n) for n in uu_blocks(a["data"])]
+        if a.get("nested"):
+            found += uu_scan(a["nested"], idx + "/")
+    return found
 
 
 def _addr_list(values):

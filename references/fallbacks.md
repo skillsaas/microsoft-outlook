@@ -49,10 +49,19 @@ MIME; whether it carries an HTML body for an RTF-only item was not tested here).
 ## Encrypted or signed mail
 S/MIME (`smime`, `encrypted`) and Microsoft Purview message encryption cannot be read from the
 file. Ask the user to open it in Outlook, which holds the keys. Do not ask for private keys.
+| What the inspector shows | Do |
+| :--- | :--- |
+| flag `signed` only | The content is readable and inspected; the signature is not verified. Say so |
+| flag `encrypted`, or an `smime.p7m` attachment | Nothing inside was read. Ask the user to open it in Outlook and, if needed, save the decrypted message as a new file |
+| a `message.rpmsg` attachment (Purview / IRM) | Same: only Outlook or Outlook on the web with the user's account can open it |
+| the user wants it decrypted by you | Decline; keys stay with the user and Outlook |
 
 ## No Graph access
 Without a registered app and consent, use files: ask the user to save the messages from Outlook
 (classic Outlook saves .msg by drag and drop or Save As), or export a .pst from classic.
+EWS is not a fallback: it is being turned off for Exchange Online and this skill does not use
+it. A classic Outlook user without Graph works with saved files, or with VBA on their own
+machine (`addins.md`); an on-premises Exchange server is out of scope.
 
 ## The user is on new Outlook and wants a macro
 New Outlook does not run VBA. Offer: a Power Automate flow, a Graph script the user runs, an

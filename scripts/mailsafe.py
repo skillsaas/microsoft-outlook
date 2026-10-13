@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -101,7 +101,6 @@ TEXT_EXTS = {"txt", "text", "log", "csv", "md", "ini", "cfg", "json", "xml", "da
 # reasons that keep a file out of the output folder unless --include-risky (then saved as .quarantine)
 _PAD = b"\x00\t\r\n\x0b\x0c "
 _LONG_PAD = 1024
-_LEAD_COMMENT = re.compile(rb"(?s)\A(\s*<!--.*?-->)+\s*")
 _CODE_LINE = re.compile(rb"(?:[;{}]\s*$|^\s*(//|/\*|\*|\}|function\b|var\b|let\b|const\b|return\b|if\s*\(|for\s*\())")
 HOLD_BACK = {"content-does-not-match-extension", "script-like-text", "unreadable-container",
              "damaged-compound-file"}
@@ -133,6 +132,39 @@ def _normalize(head):
     if h.startswith(b"\xef\xbb\xbf"):
         h = h[3:]
     return h.lstrip(_PAD)
+
+
+_PROLOG_WINDOW = 1024 * 1024  # how far comments and an XML declaration are skipped before the tag check
+_STRAY = re.compile(rb"[^<]{1,64}")
+
+
+def _skip_prolog(text):
+    """What a browser would reach first: skip whitespace, XML declarations and processing
+    instructions, comments (closed by --> or --!>, any length within the window; an unterminated
+    comment hides everything), and short stray text between them (the tail of a nested comment),
+    in any order."""
+    i, n, stray = 0, len(text), 0
+    while True:
+        while i < n and text[i] in b"\x00\t\r\n\x0b\x0c ":
+            i += 1
+        if text.startswith(b"<!--", i):
+            ends = [x for x in (text.find(b"-->", i + 4), text.find(b"--!>", i + 4)) if x != -1]
+            if not ends:
+                return b""
+            k = min(ends)
+            i = k + (4 if text.startswith(b"--!>", k) else 3)
+        elif text.startswith(b"<?", i):
+            k = text.find(b"?>", i + 2)
+            if k == -1:
+                return b""
+            i = k + 2
+        elif stray < 4 and i < n and text[i:i + 1] != b"<" and i > 0:
+            m = _STRAY.match(text, i)
+            if not m or not text.startswith(b"<", m.end()):
+                return text[i:i + 8192]
+            i, stray = m.end(), stray + 1
+        else:
+            return text[i:i + 8192]
 
 
 def _code_like(head):
@@ -175,7 +207,10 @@ def content_risk(data, name):
             out.append("executable-content:windows-executable")
         elif b"\x7fELF" in raw[:1024]:
             out.append("executable-content:elf-executable")
-    if _ACTIVE_TEXT.match(_LEAD_COMMENT.sub(b"", head, count=1)) and e not in ("html", "htm", "svg", "xml"):
+    prolog = head
+    if head.startswith((b"<!--", b"<?")):  # comments or a declaration first: look past them, up to 1 MB
+        prolog = _skip_prolog(_normalize(data[bom + pad:bom + pad + _PROLOG_WINDOW]))
+    if (_ACTIVE_TEXT.match(head) or _ACTIVE_TEXT.match(prolog)) and e not in ("html", "htm", "svg", "xml"):
         out.append("executable-content:html-or-script")
     elif _WSH.match(head) and e not in ("vbs", "ps1", "bat", "cmd", "js", "wsf"):
         out.append("executable-content:script")

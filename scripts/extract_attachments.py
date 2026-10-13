@@ -17,6 +17,9 @@ Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include
   It never overrides the high-risk skip.
 - An attached message or winmail.dat is a container (risk at least medium) whether it is found by
   name or by its bytes; the container itself is not saved, its attachments are (like TNEF).
+- An attached message found by its bytes (an .eml sent as octet-stream or renamed invoice.pdf)
+  is read as a message, like message/rfc822; it is never written itself.
+- uuencoded blocks ("begin 644 name") in text are listed under uuencoded_not_extracted, not decoded.
 - Attachments of nested messages (attached .msg or .eml, winmail.dat) are saved too, numbered
   by path ("2/1" is attachment 1 of attachment 2).
 - manifest.json (mode 0600) lists every attachment: index, original and saved name, size,
@@ -26,7 +29,7 @@ Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include
   status "incomplete". --allow-incomplete saves what was read and still reports what was not.
 
 Exit codes (JSON "status" in quotes): 0 "ok" (all saved); 1 "risky-skipped" (saved, but some were skipped
-as high risk: tell the user which) or "incomplete"; 2 "error" (not an email file or corrupt);
+as high risk, or a uuencoded block was found and not extracted: tell the user which) or "incomplete"; 2 "error" (not an email file or corrupt);
 3 "refused" (OUTDIR exists, a symlink in the path, size, count or time caps).
 """
 import json
@@ -220,9 +223,12 @@ def main(argv=None):
     for i in items:
         i.pop("_data", None)
     risky = [i for i in items if i["skipped"] and i["skipped"].startswith("high risk")]
-    r = {"ok": True, "status": "risky-skipped" if risky else ("incomplete" if inc else "ok"), "error": None,
+    uu = [{"where": w, "name": mailsafe.clean_text(n, 200), "risk": mailsafe.attachment_risk(n)[0]}
+          for w, n in mailparse.uu_scan(m)]
+    r = {"ok": True, "status": "risky-skipped" if risky or uu else ("incomplete" if inc else "ok"), "error": None,
          "complete": not inc, "incomplete": inc[:50], "dry_run": a.dry_run, "outdir": None if a.dry_run or not saved else out,
          "saved": len(saved), "skipped_risky": len(risky), "attachments": items,
+         "uuencoded_not_extracted": uu,
          "note": "Saved files were not opened. Scan them before anyone opens them."}
 
     def human(r):
@@ -231,9 +237,11 @@ def main(argv=None):
         for i in r["attachments"]:
             lines.append("  [%s] %s -> %s  risk=%s%s" % (i["index"], i["name"], i["saved_as"] or "-", i["risk"],
                                                      ("  skipped: " + i["skipped"]) if i["skipped"] else ""))
+        for u in r["uuencoded_not_extracted"]:
+            lines.append("  uuencoded in %s: %s  risk=%s  not extracted" % (u["where"], u["name"], u["risk"]))
         return "\n".join(lines)
     mailsafe.emit(r, a.json, human)
-    return 1 if risky else 0
+    return 1 if risky or uu else 0
 
 
 if __name__ == "__main__":

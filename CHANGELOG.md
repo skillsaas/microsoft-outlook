@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7 (2026-10-13)
+
+- Tariq N20 (medium), Hamza N1: an attached mail message is found by its bytes (a strict RFC 822 header block), so an .eml sent as `application/octet-stream` or renamed `invoice.pdf` is read as a nested message: its attachments are listed, risk-checked and filtered, and the message itself is never written. A renamed one is flagged `mail-message-by-content`; one that cannot be read is `unreadable-container`.
+- Hamza N2: uuencoded (and begin-base64) blocks in bodies and text attachments are reported as `uuencoded-content` with the declared name's risk (at least medium); extract lists them under `uuencoded_not_extracted` and ends `risky-skipped`. Not decoded.
+- Tariq N21: HTML or script is found after comments of any length up to 1 MB, an XML declaration and comments in any order, `--!>` closers, and nested comments; an unterminated comment still hides the rest, as in a browser.
+- Hamza: the real-file test checks .ics content (complete vs incomplete, event components, start values, expected summaries by hash). troubleshooting.md: a run near `--timeout` can go either way.
+- haiku: 7 MIT-licensed public samples shipped in `tests/samples/` and checked by default; a Limits table with every default and the fixed nesting depth (4) in json-output.md; RTF and TNEF caveats in SKILL.md and formats.md; a reply-to on a subdomain of the sender (`mail.abc.de` vs `abc.de`) is no longer flagged; rule 9: "extract everything" is not approval for `--include-risky`; fallbacks.md: EWS is not a fallback, what a classic user without Graph does; the Workflow is a step table with examples. CI still not run (repo not pushed); said so in README.
+- Others: graph.md recipe contract test (methods, paths, JSON bodies, read-back before send) (chatgpt, gemini, mini, gpt-oss); Graph 400, 403, 404, 429, 503 and write-timeout rows in troubleshooting.md (gemma, perplexity); device-code phishing caution beside the MSAL sketch and the one network exception named in SKILL.md (mistral); encrypted-mail decision table (perplexity); recipe 8 placeholders and DST boundaries (luna, gemini); "saving is not making safe" and a Windows temp path in rule 3 (luna, gemma); never rename a `.quarantine` file (gemini).
+- Tests: 56 plus 3 optional.
+
 ## 0.1.6 (2026-10-13)
 
 - Hamza R6-A: an attached message whose contents were read (.eml, .msg, winmail.dat) is never written itself, with or without `--only-ext`; only its attachments are filtered and saved (as SKILL.md says). Test added.

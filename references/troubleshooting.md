@@ -20,7 +20,12 @@ Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
 | `OUTDIR exists` (exit 3) | | Choose a new folder; nothing is overwritten |
 | Graph `InefficientFilter` | `$orderby` vs `$filter` | Put `$orderby` properties first in `$filter`, same order |
 | Graph `ErrorAccessDenied` | Token scopes, mailbox access | Tell the user which scope is missing; do not widen on your own |
-| Graph `429` | `Retry-After` header | Wait and retry |
+| Graph `429` or `503` | `Retry-After` header | Wait that long; with none, 2, 4, 8, 16 s; stop after 5 tries and tell the user |
+| Graph `400` | the error `message`; JSON body and `$filter` syntax | Fix the request; do not retry unchanged |
+| Graph `403` (not admin consent) | scope granted but mailbox or folder not shared | Tell the user; never widen scopes or switch mailbox |
+| Graph `404` on a message id | Moved or deleted since it was listed (ids can change on move) | List again or search by subject and date; do not guess an id |
+| A write timed out or gave `5xx` | Whether it happened anyway | Look first (Sent Items, calendar, rule list), then retry only if it is not there (safety rule 7) |
+| Exit 3 time limit on one run, success on the next | Run time close to `--timeout` | Normal jitter: each outcome is all or nothing |
 | EWS calls fail in Exchange Online since October 2026 | EWS phased disablement | Move to Graph (`graph.md`) |
 | VBA macro "does nothing" | User is on new Outlook | New Outlook has no VBA; `addins.md` |
 | Add-in API undefined | Requirement set | `Office.context.requirements.isSetSupported("Mailbox", "1.x")` |

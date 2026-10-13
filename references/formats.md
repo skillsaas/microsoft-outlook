@@ -11,11 +11,13 @@ Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, rea
 | attached `.msg` or `winmail.dat` inside any message | yes since 0.1.2: detected by bytes, whatever the name or MIME type, and parsed as a nested message | its attachments too | synthetic | |
 | `.eml` (MIME) | yes, `inspect_mail.py` | yes | stdlib parser; synthetic fixtures | S/MIME decryption |
 | `.msg` | yes | yes | synthetic fixture cross-checked with olefile and extract-msg; 28 public sample .msg files (see below) | controlled corpus of known Outlook versions; named properties |
-| `winmail.dat` (TNEF) | yes | yes | 19 tnefparse sample files | MAPI property types outside MS-OXTNEF basics |
-| compressed RTF body (in .msg or TNEF) | yes since 0.1.1 (`body-from-rtf` flag) | n/a | spec-built streams; cross-check with compressed_rtf | RTF formatting, embedded pictures and objects |
+| `winmail.dat` (TNEF) | yes | yes | 19 tnefparse sample files | MAPI property types outside MS-OXTNEF basics; unusual corporate TNEF may not parse (reported as incomplete, never as clean) |
+| compressed RTF body (in .msg or TNEF) | yes since 0.1.1 (`body-from-rtf` flag) | n/a | spec-built streams; cross-check with compressed_rtf; 21 real bodies from public samples (not from known Outlook builds) | RTF formatting, embedded pictures and objects |
 | `.ics`, `.vcs` | yes, `inspect_ics.py` | n/a | synthetic fixture | RRULE expansion, VTIMEZONE rule evaluation |
 | `.pst`, `.ost` | **no: orientation only** | no | nothing; readpst was run only on a non-PST file | everything; use classic Outlook or readpst |
 | `.oft` | as `.msg` | as `.msg` | not tested | |
+| .eml attached as octet-stream or renamed (`invoice.pdf`) | since 0.1.7: read as a nested message by its header block (three known mail headers, two of From, Date, Message-ID, Received, MIME-Version, Subject) | its attachments | synthetic | |
+| uuencoded block in text | reported (`uuencoded-content`), not decoded | no | synthetic | decoding |
 | damaged Compound File (not .msg/.oft by name or type) | flagged `damaged-compound-file`, incomplete; not treated as a message | held back | synthetic | |
 | encrypted, S/MIME, IRM | headers only | no | not tested | decryption |
 

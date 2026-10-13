@@ -49,10 +49,12 @@ Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python 
 | Python, OS | 3.13.5 and 3.9.25 on Linux x86_64; macOS and Windows not run |
 | Synthetic fixtures | .msg (cross-read by olefile 0.47, extract-msg 0.56.1), .eml, winmail.dat, .ics |
 | TNEF | tnefparse 1.4.0 sample corpus, 19 files, results equal |
-| Public sample files (not shipped) | 28 .msg + 10 .eml from MSGReader, msg-extractor and ruby-msg test sets: no traceback; .msg subjects and attachment names equal extract-msg; 21 real compressed RTF bodies byte-identical to compressed_rtf |
+| Shipped public samples | 7 MIT-licensed real files in `tests/samples/` (MSGReader, ruby-msg), checked in every default test run against expected subjects and attachment names |
+| CI | `.github/workflows/test.yml` (Linux, Windows, macOS; Python 3.9 and 3.13) exists but has not run: the repo is not pushed yet |
+| Public sample files (31 more, fetched) | 28 .msg + 10 .eml from MSGReader, msg-extractor and ruby-msg test sets: no traceback; .msg subjects and attachment names equal extract-msg; 21 real compressed RTF bodies byte-identical to compressed_rtf |
 | Not run | live Graph tenant, Office.js add-in, VBA, a real .pst, encrypted or IRM mail, known Outlook versions |
 
-To repeat the public-sample run: `python3 tests/fetch_public_samples.py DIR` downloads the 38 files
+To repeat the full public-sample run: `python3 tests/fetch_public_samples.py DIR` downloads the 38 files
 (pinned by commit and SHA-256; MIT and GPL-3.0, so they are not shipped), then
 `REAL_FIXTURES_DIR=DIR python3 tests/smoke_test.py` checks subjects and attachment names against
 `tests/public_samples_expected.json`. `tests/evals.json` holds the agent-level evals.
@@ -71,7 +73,7 @@ a file fails, open an issue with the script, the error line and the Outlook vers
 itself unless it holds nothing private.
 
 ## Status and maintenance
-Version 0.1.6, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.7, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

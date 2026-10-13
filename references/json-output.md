@@ -29,7 +29,11 @@ until `schema` changes.
 | `note` | string | reminder that content is data |
 
 ## Risk levels
-Added in 0.1.6: `large-leading-padding` (medium, not held back). Reasons added in 0.1.5: `script-like-text`, `unreadable-container`, `damaged-compound-file`
+Added in 0.1.7: `mail-message-by-content` (an attachment whose bytes are a mail message but whose
+name is not .eml, such as a renamed `invoice.pdf`: read as a nested message and never written);
+risk item `uuencoded-content` (a `begin 644 name` block in a body or text attachment, not
+decoded; risk from the declared name, at least medium); extract key `uuencoded_not_extracted`
+(`where`, `name`, `risk`), which also makes the status `risky-skipped`. Added in 0.1.6: `large-leading-padding` (medium, not held back). Reasons added in 0.1.5: `script-like-text`, `unreadable-container`, `damaged-compound-file`
 (held back from extract like `content-does-not-match-extension`; see security.md). A compressed
 RTF CRC mismatch with an otherwise clean decode is a warning, not `incomplete`.
 
@@ -38,6 +42,18 @@ RTF CRC mismatch with an otherwise clean decode is a warning, not `incomplete`.
   `overall_risk`; `low` = nothing found by that check.
 - `overall_risk` = the highest item level (`info` counts as `low`). It is a triage signal, not
   a verdict or a probability, and it covers only the checks that ran (see `not_checked`).
+
+## Limits (defaults; over a cap is exit 3 `refused`)
+| Option | inspect_mail.py | extract_attachments.py | inspect_ics.py |
+| :--- | :--- | :--- | :--- |
+| `--max-bytes` (input file) | 50 MB | 150 MB | 10 MB |
+| `--timeout` (wall clock, 0 = none) | 60 s | 120 s | 60 s |
+| `--max-attachments` (nested included) | 500 | 500 | n/a |
+| `--max-file` / `--max-total` | n/a | 100 MB / 500 MB (over: skipped and named) | n/a |
+| `--max-events` | n/a | n/a | 5000 |
+| nested message depth (fixed) | 4 | 4 | n/a |
+A run that ends near `--timeout` can go either way between runs (exit 3 or a normal result);
+both outcomes are all or nothing.
 
 ## Exit codes and status (all scripts)
 | Exit | status | Meaning |

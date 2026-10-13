@@ -24,8 +24,10 @@ Run `inspect_mail.py FILE --json`, then read:
    company's own second domain (`contoso.com` replying via `contoso-mail.com`). The rule: the last
    two labels, or three when the last is a two-letter country code and the one before has at
    most three letters (`co.uk`, `com.au`, `gov.pk`). So `sales.contoso.co.uk` and `contoso.co.uk`
-   match and `contoso.co.uk` vs `attacker.co.uk` differ, but a short company name under a country
-   code is misread as a suffix (`mail.abc.de` vs `abc.de` look different: a false flag), and
+   match and `contoso.co.uk` vs `attacker.co.uk` differ. Since 0.1.7 a reply-to host that is a
+   subdomain of the From host, or the other way round (`mail.abc.de` and `abc.de`), is never
+   flagged. Treat the flag as a strong hint to read both domains, not as proof; but a short company name under a country
+   code is misread as a suffix (`www.abc.de` vs `shop.abc.de` look different: a false flag), and
    longer shared suffixes (`github.io`, `blogspot.com`) look like one site (a miss).
 3. **Authentication-Results.** Only the topmost header, added by the user's own receiving server,
    counts. Lower ones, or any in a .msg/.eml that went through other hands, may be written by the
@@ -66,6 +68,14 @@ reasons, and say what you could not check (copy the relevant `not_checked` items
 Phishing button (Outlook's built-in reporting) rather than replying to the sender.
 
 ## Attachments
+Mail inside mail is found by its bytes (0.1.7): an attached message sent as
+`application/octet-stream` or renamed (`invoice.pdf` holding an .eml) is read as a nested message,
+so its own attachments are listed and risk-checked; the renamed one is flagged
+`mail-message-by-content`. It is never written itself. A uuencoded block (`begin 644 reset.scr`)
+is reported as `uuencoded-content` with the declared name's risk; it is not decoded or saved.
+With `--include-risky`, never rename a `.quarantine` file back: `invoice.pdf.exe.quarantine` runs
+as a program once the suffix is gone.
+
 Content beats the name (0.1.5). Before the magic check the head is normalized: BOM, leading
 whitespace, nulls and junk are stripped and UTF-16 or UTF-32 text is decoded;
 leading HTML comments are skipped, and a pad of any length is scanned past (1024 bytes or more

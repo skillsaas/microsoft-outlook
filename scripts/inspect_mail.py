@@ -44,7 +44,11 @@ def header_risks(h, auth):
     out = []
     frm = (h.get("from") or [{}])[0] if h.get("from") else {}
     fdom = _dom(frm.get("address"))
+    fhost = ((frm.get("address") or "").rpartition("@")[2]).lower().rstrip(".")
     for r in h.get("reply_to") or []:
+        rhost = ((r.get("address") or "").rpartition("@")[2]).lower().rstrip(".")
+        if fhost and rhost and (rhost.endswith("." + fhost) or fhost.endswith("." + rhost)):
+            continue  # mail.abc.de and abc.de: one is a subdomain of the other, not another domain
         if fdom and _dom(r.get("address")) and _dom(r.get("address")) != fdom:
             out.append({"risk": "high", "kind": "reply-to-other-domain",
                         "detail": "replies go to %s, not %s (approximate domain comparison, no Public Suffix List)"
@@ -138,6 +142,12 @@ def report(m, path, body_chars, show):
     for a in atts:
         if a["risk"] != "low":
             risks.append({"risk": a["risk"], "kind": "attachment", "detail": "%s %s" % (a["index"], ",".join(a["reasons"]))})
+    for where, nm in mailparse.uu_scan(m):
+        lvl, why = mailsafe.attachment_risk(nm)
+        lvl = "high" if lvl == "high" else "medium"
+        risks.append({"risk": lvl, "kind": "uuencoded-content",
+                      "detail": "%s: %s (not decoded by this skill; some clients show it as an attachment)%s"
+                      % (where, mailsafe.clean_text(nm, 200), (" " + ",".join(why)) if why else "")})
     if f.get("remote_images"):
         risks.append({"risk": "info", "kind": "html-remote-images",
                       "detail": "%d remote image(s): loading them tells the sender the mail was opened" % f["remote_images"]})

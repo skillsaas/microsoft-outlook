@@ -899,6 +899,132 @@ def _():
         srv.shutdown()
 
 
+@test("shipped public samples (MIT): subjects, attachment names and completeness match the expected JSON")
+def _():
+    import hashlib
+    d = os.path.join(ROOT, "tests", "samples")
+    if not os.path.isdir(d):
+        raise Skip("tests/samples not present (not in the npm package)")
+    exp = json.load(open(os.path.join(ROOT, "tests", "public_samples_expected.json"), encoding="utf-8"))["files"]
+    n = 0
+    for f in sorted(os.listdir(d)):
+        if not f.endswith((".msg", ".eml")):
+            continue
+        p = os.path.join(d, f)
+        e = exp[hashlib.sha256(open(p, "rb").read()).hexdigest()]
+        c, r, txt = run("inspect_mail.py", p, "--json")
+        assert c in (0, 1) and r["ok"], (f, txt[:300])
+        got = [a["name"] for a in r["attachments"] if "/" not in a["index"]]
+        assert (r["headers"].get("subject"), got, r["complete"]) == (e["subject"], e["attachments"], e["complete"]), (f, e)
+        out = os.path.join(TMP, "ship-" + f)
+        c, x, txt = run("extract_attachments.py", p, out, "--json")
+        assert c in (0, 1) and x["ok"] and "Traceback" not in txt, (f, txt[:300])
+        n += 1
+    assert n == 7, n
+
+
+@test("v0.1.7 (Tariq N20, N21; Hamza N1, N2): mail found by content is read and recursed; uuencode reported; HTML after any comments")
+def _():
+    import base64, mailsafe
+    pe = b"MZ" + b"\x00" * 0x3a + (0x80).to_bytes(4, "little") + b"\x00" * 0x40 + b"PE\x00\x00" + b"\x00" * 64
+    def part(n, ct, d):
+        return (b"--B\r\nContent-Type: " + ct + b"\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + n + b"\r\n\r\n" + base64.encodebytes(d) + b"\r\n")
+    l3 = (b"From: x@example.com\r\nTo: y@example.com\r\nSubject: l3\r\nDate: Mon, 1 Jan 2024 00:00:00 +0000\r\n"
+          b"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+          + part(b"evil.txt", b"text/plain", b"\x00" * 20000 + pe) + part(b"deep.pdf", b"application/pdf", b"%PDF-1.4\n")
+          + part(b"reset.scr", b"application/octet-stream", pe) + b"--B--\r\n")
+    l2 = (b"From: a@example.com\r\nSubject: l2\r\nDate: Mon, 1 Jan 2024 00:00:00 +0000\r\nMIME-Version: 1.0\r\n"
+          b"Content-Type: multipart/mixed; boundary=B\r\n\r\n" + part(b"l3.eml", b"application/octet-stream", l3)
+          + part(b"invoice.pdf", b"application/pdf", l3)
+          + part(b"notes.txt", b"text/plain", b"Status: done\nOwner: Ali\nDate: today\nSubject: x\n\nnot mail\n")
+          + b"--B--\r\n")
+    top = (b"From: t@example.com\r\nSubject: top\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=T\r\n\r\n"
+           b"--T\r\nContent-Type: message/rfc822\r\nContent-Disposition: attachment; filename=l2.eml\r\n\r\n" + l2
+           + b"\r\n--T--\r\n")
+    f = write("n20.eml", top)
+    c, r, _ = run("inspect_mail.py", f, "--json")
+    k = {a["index"]: a for a in r["attachments"]}
+    assert k["1/1"]["kind"] == "embedded-message" and k["1/2"]["kind"] == "embedded-message", k
+    assert "mail-message-by-content" in k["1/2"]["reasons"] and k["1/3"]["kind"] == "file", k
+    for i in ("1/1/1", "1/2/1"):
+        assert k[i]["risk"] == "high" and "large-leading-padding" in k[i]["reasons"], k[i]
+    assert k["1/1/3"]["risk"] == "high" and k["1/2/3"]["risk"] == "high"
+    for flags in (["--only-ext", ".pdf,.eml,.txt"], ["--only-ext", ".pdf"], []):
+        out = os.path.join(TMP, "n20-%d" % len(os.listdir(TMP)))
+        c, x, _ = run("extract_attachments.py", f, out, "--json", *flags)
+        names = sorted(os.listdir(out))
+        assert not any(n.endswith((".eml", ".scr")) or n in ("invoice.pdf", "evil.txt") for n in names), (flags, names)
+        # under --only-ext .pdf the high items are already out by extension, so the run can be "ok"
+        assert "deep.pdf" in names and (c, x["status"]) in ((1, "risky-skipped"), (0, "ok")), (flags, names, x["status"])
+        assert flags == ["--only-ext", ".pdf"] or c == 1, (flags, x["status"])
+    # N2: uuencoded block in the body and in a text attachment
+    uu = (b"From: a@example.com\r\nSubject: uu\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+          b"--B\r\nContent-Type: text/plain\r\n\r\nhello\r\nbegin 644 reset.scr\r\nM2&5L;&\\L(%=O<FQD(0H`\r\n`\r\nend\r\n"
+          + part(b"more.txt", b"text/plain", b"begin 600 notes.doc\nM2&5L;&\\L\n`\nend\n") + b"--B--\r\n")
+    f = write("uu.eml", uu)
+    c, r, _ = run("inspect_mail.py", f, "--json")
+    uus = [x for x in r["risks"] if x["kind"] == "uuencoded-content"]
+    assert len(uus) == 2 and uus[0]["risk"] == "high" and "reset.scr" in uus[0]["detail"], uus
+    assert "notes.doc" in uus[1]["detail"] and uus[1]["risk"] == "medium", uus
+    c, x, _ = run("extract_attachments.py", f, os.path.join(TMP, "uu-out"), "--json")
+    assert c == 1 and x["status"] == "risky-skipped" and [u["name"] for u in x["uuencoded_not_extracted"]] == ["reset.scr", "notes.doc"], x
+    assert mailsafe.content_risk(b"Write 'begin 644 file' to start a block.\n", "a.txt") == []
+    # N21: long comments, xml + comment + svg, --!> closers, nested comments
+    H = b"<html><script>x()</script>"
+    for d in (b"<!--" + b"a" * 20000 + b"-->" + H, b"<!-- x -->" * 2000 + H, b"<?xml version='1.0'?><!-- c --><svg><script>a()</script></svg>",
+              b"<!-- x --!>" + H, b"<!-- a <!-- b --> c -->" + H, ("<!--" + "z" * 9000 + "-->" + H.decode()).encode("utf-16")):
+        assert "executable-content:html-or-script" in mailsafe.content_risk(d, "a.txt"), d[:40]
+    for d in (b"<!-- note -->\nplain text here\n", b"<!-- unterminated " + H, b"Use <!-- --> in HTML; <b>bold</b>\n"):
+        assert mailsafe.content_risk(d, "a.txt") == [], d
+    # haiku: a reply-to on a subdomain of the sender is not another domain
+    e = write("rt.eml", b"From: a@abc.de\r\nReply-To: b@mail.abc.de\r\nSubject: s\r\n\r\nhi\r\n")
+    c, r, _ = run("inspect_mail.py", e, "--json")
+    assert "reply-to-other-domain" not in kinds(r), kinds(r)
+    e = write("rt2.eml", b"From: a@abc.de\r\nReply-To: b@evil.example\r\nSubject: s\r\n\r\nhi\r\n")
+    assert "reply-to-other-domain" in kinds(run("inspect_mail.py", e, "--json")[1])
+
+
+@test("graph.md recipe contract: methods and paths valid, JSON bodies parse, every send comes after a read-back of that draft")
+def _():
+    g = open(os.path.join(ROOT, "references", "graph.md"), encoding="utf-8").read()
+    blocks = re.findall(r"```http\n(.*?)```", g, re.S)
+    assert blocks, "no http blocks"
+    reqs = bodies = 0
+    for b in blocks:
+        lines = b.splitlines()
+        recipe_gets, i = [], 0
+        while i < len(lines):
+            line = lines[i].split("  #")[0].rstrip()
+            m = re.match(r"^(GET|POST|PATCH|PUT|DELETE) (\S+)", line)
+            if lines[i].startswith("# ") and re.match(r"^# \d+\.", lines[i]):
+                recipe_gets = []
+            if m:
+                reqs += 1
+                meth, path = m.groups()
+                assert path.startswith(("/", "https://graph.microsoft.com/", "{uploadUrl}", "{@odata.nextLink}")), line
+                if meth == "GET":
+                    recipe_gets.append(path)
+                if meth == "POST" and path.endswith("/send") and "{draft-id}" in path:
+                    assert any("{draft-id}" in x for x in recipe_gets), ("send without read-back", line)
+                j, body = i + 1, []
+                while j < len(lines) and not re.match(r"^(GET|POST|PATCH|PUT|DELETE) ", lines[j]) and not re.match(r"^# \d+\.", lines[j]):
+                    t = lines[j]
+                    if body or t.lstrip().startswith(("{", "[")):
+                        if t.strip().startswith("#") or not t.strip():
+                            break
+                        body.append(re.sub(r"\s+#.*$", "", t) if "\"" not in t.split("#")[-1] else t)
+                    j += 1
+                if body:
+                    bodies += 1
+                    try:
+                        json.loads("\n".join(body))
+                    except ValueError as e:
+                        raise AssertionError("bad JSON body after %s: %s\n%s" % (line, e, "\n".join(body)))
+            i += 1
+    assert reqs >= 15 and bodies >= 6, (reqs, bodies)
+
+
 @test("real files: all 3 scripts on every file in REAL_FIXTURES_DIR: valid JSON, consistent content, known samples match (optional)")
 def _():
     import hashlib
@@ -936,6 +1062,17 @@ def _():
         elif ext in ("ics", "vcs"):
             c, r, txt = run("inspect_ics.py", p, "--json", "--tz", "UTC")
             assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, ("ics", f, txt[:300])
+            if c in (0, 1) and r["ok"]:
+                assert r["complete"] == (not r["incomplete"]) and (r["status"] != "ok" or r["complete"]), f
+                assert isinstance(r["events"], list) and (r["method"] is None or isinstance(r["method"], str)), f
+                for ev in r["events"]:
+                    assert ev["component"] in ("VEVENT", "VTODO", "VJOURNAL", "VFREEBUSY") and "start" in ev, (f, ev)
+                    if ev["start"] and ev["start"].get("value"):
+                        assert re.match(r"^\d{8}(T\d{6}Z?)?$", ev["start"]["value"]), (f, ev["start"])
+                e = exp.get(hashlib.sha256(open(p, "rb").read()).hexdigest())
+                if e and "events" in e:
+                    known += 1
+                    assert ([x.get("summary") for x in r["events"]], r["method"]) == (e["events"], e.get("method")), (f, e)
             n += 1
     assert n, "no .msg, .eml, .dat or .ics files in REAL_FIXTURES_DIR"
     print("    %d script runs, %d known public samples matched" % (n, known), end="")
