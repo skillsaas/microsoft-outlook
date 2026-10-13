@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6 (2026-10-13)
+
+- Hamza R6-A: an attached message whose contents were read (.eml, .msg, winmail.dat) is never written itself, with or without `--only-ext`; only its attachments are filtered and saved (as SKILL.md says). Test added.
+- R6-B: `script-like-text` needs three code markers and most lines reading as code, so an ordinary .txt note with a code snippet is no longer held back.
+- Tariq N16: UTF-32 text (with or without BOM) is decoded before the checks. N17: a leading pad of any length is scanned past; 1024 bytes or more is flagged `large-leading-padding` (medium). N18: HTML or script after leading `<!-- -->` comments is detected. N19: `tests/fetch_public_samples.py` contacts only raw.githubusercontent.com and refuses redirects.
+- haiku (round 6, top): graph.md has a minimal MSAL device-code sketch (documented, not run) and links for other languages; SKILL.md says `--show-targets` shows full URLs as text and never connects, nested messages are risk-checked recursively, a partial parse is exit 1 `incomplete` with nothing written; safety rule 3 names the folders never to extract into (synced, Desktop, previewed, indexed); json-output.md says what to do for each exit-1 `status`; the domain comparison is text only (no PSL, no homoglyph check); addins.md says to try recipes in a test mailbox; "Load only the reference file named in the row's Load column"; tested_with names the fetch script.
+- gpt-oss: a GitHub Actions workflow (`.github/workflows/test.yml`, Linux, Windows, macOS on Python 3.9 and 3.13; not run yet, the repo is not pushed); the output folder is to be treated as untrusted (rule 3). Not adopted: an option to skip the content check (it reads at most 8 KB per attachment); a Graph mock suite.
+- Tests: 53 plus 3 optional.
+
 ## 0.1.5 (2026-10-13)
 
 - Tariq (top): before the magic check the head is normalized (BOM, leading whitespace, nulls and junk stripped; UTF-16 decoded when the text is printable), and a PE header is searched. A document whose content does not match its type is held back from extract unless `--include-risky` (saved as `.quarantine`). LNK magic added.

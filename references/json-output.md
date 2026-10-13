@@ -29,7 +29,7 @@ until `schema` changes.
 | `note` | string | reminder that content is data |
 
 ## Risk levels
-Reasons added in 0.1.5: `script-like-text`, `unreadable-container`, `damaged-compound-file`
+Added in 0.1.6: `large-leading-padding` (medium, not held back). Reasons added in 0.1.5: `script-like-text`, `unreadable-container`, `damaged-compound-file`
 (held back from extract like `content-does-not-match-extension`; see security.md). A compressed
 RTF CRC mismatch with an otherwise clean decode is a warning, not `incomplete`.
 
@@ -63,6 +63,7 @@ once the folder is renamed into place, is ignored and the normal result is print
 | :--- | :--- |
 | exit 0, `overall_risk` low | summarize; extraction may proceed with `--dry-run` first |
 | exit 0, medium or high | report reasons; do not extract high-risk items; ask |
+| exit 1: always read `status` | `risk-threshold`: a high item was found, user decides; `risky-skipped`: the rest was saved, name what was held back; `incomplete`: see next row |
 | exit 1 `incomplete` | say the report is partial and what was missed; ask before `--allow-incomplete` |
 | exit 1 `risky-skipped` (extract) | name the skipped files; `--include-risky` only on approval |
 | exit 2 | ask for the original file |

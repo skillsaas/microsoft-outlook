@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the public sample files used for the 0.1.4 real-file run, check their SHA-256, and save
+"""Fetch the public sample files used for the 0.1.4 real-file run (one pinned host, redirects refused), check their SHA-256, and save
 them into a new folder for REAL_FIXTURES_DIR. Standard library only. Nothing runs on install;
 this downloads only when you run it.
 
@@ -14,6 +14,7 @@ Exit codes: 0 all fetched and verified; 1 some failed (listed); 2 bad usage or D
 import hashlib
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -65,6 +66,14 @@ FILES = [  # (saved name, project, path in the project, sha256)
 ]
 
 
+HOST = "raw.githubusercontent.com"  # the only host contacted; redirects are refused, not followed
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "redirect refused (to %s)" % newurl, headers, fp)
+
+
 def main(argv):
     if len(argv) != 2 or argv[1].startswith("-"):
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
@@ -74,12 +83,18 @@ def main(argv):
         print("DEST exists: choose a new folder", file=sys.stderr)
         return 2
     os.makedirs(dest, mode=0o700)
+    opener = urllib.request.build_opener(_NoRedirect)
     bad = []
     for name, proj, path, want in FILES:
         repo, sha = REPOS[proj]
         url = "https://raw.githubusercontent.com/%s/%s/%s" % (repo, sha, urllib.parse.quote(path))
+        if urllib.parse.urlsplit(url).hostname != HOST:
+            bad.append("%s: host not pinned, refused" % name)
+            continue
         try:
-            with urllib.request.urlopen(url, timeout=60) as r:
+            with opener.open(url, timeout=60) as r:
+                if urllib.parse.urlsplit(r.geturl()).hostname != HOST:
+                    raise OSError("response from an unpinned host")
                 data = r.read(20 * 1024 * 1024)
         except OSError as e:
             bad.append("%s: %s" % (name, e))

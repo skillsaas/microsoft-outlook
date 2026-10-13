@@ -815,7 +815,8 @@ def _():
     for n, d in cases.items():
         r = mailsafe.content_risk(d, n)
         assert any(x.startswith("executable-content") for x in r), (n, r)
-    for d in (b"function x(){return 1;}", b"var a = 1;\nfunction x(){return a;}\n", b"const f = () => { go(); };"):
+    for d in (b"var a = 1;\nfunction x(){\n  return a;\n}\n",
+              b"const f = () => {\n  go();\n};\nfunction g(n) {\n  return n;\n}\n"):
         assert mailsafe.content_risk(d, "a.txt") == ["script-like-text"], (d, mailsafe.content_risk(d, "a.txt"))
     for n, d in {"note.txt": b"Hello Sara,\nthe report is ready; see you at 10.\nAli\n",
                  "report.pdf": b"%PDF-1.7\n", "photo.png": b"\x89PNG\r\n\x1a\n" + b"\x00" * 20,
@@ -824,7 +825,7 @@ def _():
     def part(name, data):
         return (b"--B\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n"
                 b"Content-Disposition: attachment; filename=" + name.encode() + b"\r\n\r\n" + base64.encodebytes(data) + b"\r\n")
-    names = {"junk-mz.pdf": cases["junk-mz.pdf"], "plain.txt": b"var a = 1;\nfunction x(){return a;}\n",
+    names = {"junk-mz.pdf": cases["junk-mz.pdf"], "plain.txt": b"var a = 1;\nfunction x(){\n  return a;\n}\n",
              "odd.pdf": b"not a pdf at all", "ok.txt": b"just a note\n"}
     eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
            + b"".join(part(n, d) for n, d in names.items()) + b"--B--\r\n")
@@ -837,6 +838,65 @@ def _():
     c, r, _ = run("extract_attachments.py", f, out2, "--json", "--include-risky")
     assert sorted(os.listdir(out2)) == ["junk-mz.pdf.quarantine", "manifest.json", "odd.pdf.quarantine",
                                         "ok.txt", "plain.txt.quarantine"], os.listdir(out2)
+
+
+@test("v0.1.6 (Hamza R6-A, Tariq N16 to N19): read nested messages never written; snippets in prose pass; UTF-32, long pads, leading comments")
+def _():
+    import base64, mailsafe
+    inner = (b"From: b@example.com\r\nSubject: inner\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=I\r\n\r\n"
+             b"--I\r\nContent-Type: text/plain\r\n\r\nhi\r\n--I\r\nContent-Type: application/pdf\r\n"
+             b"Content-Disposition: attachment; filename=in.pdf\r\n\r\n%PDF-1.4\r\n--I--\r\n")
+    for ctype, fname in ((b"message/rfc822", b"fwd.eml"), (b"application/octet-stream", b"fwd.eml")):
+        eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+               b"--B\r\nContent-Type: " + ctype + b"\r\nContent-Disposition: attachment; filename=" + fname
+               + b"\r\n\r\n" + inner + b"\r\n--B--\r\n")
+        f = write("nested-%d.eml" % len(ctype), eml)
+        for flags in ((["--only-ext", ".pdf"], ["--only-ext", ".pdf,.eml"], []) if ctype == b"message/rfc822"
+                      else (["--only-ext", ".pdf"],)):
+            out = os.path.join(TMP, "ne-%d" % len(os.listdir(TMP)))
+            c, x, _ = run("extract_attachments.py", f, out, "--json", *flags)
+            names = sorted(os.listdir(out)) if os.path.isdir(out) else None
+            assert (names is None or "fwd.eml" not in names) and (ctype != b"message/rfc822" or names) and all(not n.endswith(".eml") for n in names or []), (ctype, flags, names, x)
+    # R6-B: a note with a code snippet is not held back; a real script file still is
+    note = (b"Hi Sara,\n\nHere is the fix we talked about, paste it into the console:\n\n"
+            b"function total(xs) {\n  return xs.reduce((a, b) => a + b, 0);\n}\nvar t = total([1, 2]);\n\n"
+            b"It should print 3. The other two bugs are in the ticket, and I will look at them\n"
+            b"tomorrow morning before the stand-up. Let me know if the numbers still look wrong\n"
+            b"after you reload the page.\n\nThanks,\nAli\n")
+    assert mailsafe.content_risk(note, "fix.txt") == [], mailsafe.content_risk(note, "fix.txt")
+    # N16: UTF-32 with and without BOM
+    for enc in ("utf-32", "utf-32-le", "utf-32-be"):
+        d = "<script>new ActiveXObject('WScript.Shell')</script>".encode(enc)
+        assert any(r.startswith("executable-content") for r in mailsafe.content_risk(d, "a.txt")), enc
+        assert any(r.startswith("executable-content") for r in mailsafe.content_risk("#!/bin/sh\nid\n".encode(enc), "a.pdf")), enc
+    # N17: executable magic after a long pad
+    pe = b"MZ" + b"\x00" * 0x3a + (0x80).to_bytes(4, "little") + b"\x00" * 0x40 + b"PE\x00\x00" + b"\x00" * 64
+    for pad in (b"\x00" * 20000, b" " * 9000, b"\r\n" * 6000):
+        r = mailsafe.content_risk(pad + pe, "a.pdf")
+        assert "large-leading-padding" in r and any(x.startswith("executable-content") for x in r), r
+    assert "large-leading-padding" in mailsafe.content_risk(b" " * 5000 + b"%PDF-1.4", "a.txt")
+    # N18: HTML after leading comments
+    for d in (b"<!-- a -->\n<!-- b --><html><script>x()</script>", b"\xef\xbb\xbf  <!--x-->  <script>y()</script>"):
+        assert "executable-content:html-or-script" in mailsafe.content_risk(d, "a.pdf"), d
+    # N19: the fetch script pins one host and refuses redirects
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
+    import fetch_public_samples as fps, urllib.request, urllib.error
+    assert fps.HOST == "raw.githubusercontent.com"
+
+    class R(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302); self.send_header("Location", "http://example.invalid/x"); self.end_headers()
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), R)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        urllib.request.build_opener(fps._NoRedirect).open("http://127.0.0.1:%d/" % srv.server_port, timeout=10)
+        raise AssertionError("redirect followed")
+    except urllib.error.HTTPError as e:
+        assert e.code == 302 and "refused" in str(e.msg), e
+    finally:
+        srv.shutdown()
 
 
 @test("real files: all 3 scripts on every file in REAL_FIXTURES_DIR: valid JSON, consistent content, known samples match (optional)")

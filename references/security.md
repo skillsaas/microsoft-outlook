@@ -16,7 +16,7 @@ Run `inspect_mail.py FILE --json`, then read:
    one address and the real one differs. Look-alike domains (`paypa1`, `rn` for `m`, extra
    words) are not detected automatically; read the domain yourself.
 2. **Reply-To.** `reply-to-other-domain` means answers go somewhere else: a common invoice and
-   payroll fraud pattern. The comparison is approximate (no Public Suffix List). It will **not**
+   payroll fraud pattern. The comparison is approximate: it compares the domain text only, with no Public Suffix List and no homoglyph or typo detection. It will **not**
    flag: a look-alike in the same shape (`paypa1.com` vs `paypal.com` is flagged only because the
    domains differ, not as a look-alike); a reply-to on a shared hosting suffix outside the
    built-in list (`evil.github.io` vs `docs.github.io` look like the same site `github.io`);
@@ -67,11 +67,15 @@ Phishing button (Outlook's built-in reporting) rather than replying to the sende
 
 ## Attachments
 Content beats the name (0.1.5). Before the magic check the head is normalized: BOM, leading
-whitespace, nulls and junk are stripped and UTF-16 text is decoded. These reasons hold a file
+whitespace, nulls and junk are stripped and UTF-16 or UTF-32 text is decoded;
+leading HTML comments are skipped, and a pad of any length is scanned past (1024 bytes or more
+is also flagged `large-leading-padding`, medium). These reasons hold a file
 back unless `--include-risky` (then it is saved as `NAME.quarantine`): `content-does-not-match-extension`
 (a .pdf, image or Office file whose bytes are something else), `script-like-text` (JScript or
-JavaScript saved as .txt), `unreadable-container` and `damaged-compound-file`. `--only-ext` never
-writes an unreadable container; only a container whose contents were read is exempt.
+JavaScript saved as .txt: three or more code markers and most lines reading as code, so a note
+with a short snippet passes), `unreadable-container` and `damaged-compound-file`. No container is
+ever written itself: one whose contents were read gives only its attachments (each filtered, also by
+`--only-ext`); an unreadable one is held back.
 
 `attachment_risk` in `mailsafe.py` gives `high`, `medium` or `low` with reasons:
 - `outlook-blocked-type`: one of the 133 extensions on Microsoft's "Blocked attachments in

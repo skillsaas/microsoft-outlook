@@ -66,17 +66,16 @@ def plan(m, a):
         if only is not None and idx not in only:
             it["skipped"] = "not selected (--only)"
             continue
-        # a container is exempt only when its contents were read (they are filtered one by one);
-        # an unreadable container is filtered like any file, so it can never slip past the allowlist
-        if only_ext is not None and not (att["kind"] in mailsafe.CONTAINER_KINDS and att.get("nested")) and \
-                mailsafe.ext_of(att["name"] or "") not in only_ext:
+        # a container whose contents were read is never written itself (an attached .eml, .msg or
+        # winmail.dat, whatever --only-ext says); its attachments are filtered one by one. An
+        # unreadable container is filtered like any file, so it can never slip past the allowlist.
+        if att["kind"] in mailsafe.CONTAINER_KINDS and att.get("nested"):
+            what = {"tnef": "TNEF container", "msg": "Outlook message container (found by content)"}.get(
+                att["kind"], "attached message")
+            it["skipped"] = "%s: its attachments are saved instead" % what
+            continue
+        if only_ext is not None and mailsafe.ext_of(att["name"] or "") not in only_ext:
             it["skipped"] = "extension not in --only-ext"
-            continue
-        if att["kind"] == "tnef" and att.get("nested"):
-            it["skipped"] = "TNEF container: its contents are saved instead"
-            continue
-        if att["kind"] == "msg" and att.get("nested"):
-            it["skipped"] = "Outlook message container (found by content): its attachments are saved instead"
             continue
         if att["kind"] == "embedded-message" and not att["data"]:
             it["skipped"] = "embedded .msg storage: its attachments are saved instead"

@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -94,30 +94,50 @@ _WSH = re.compile(rb"(?i)^(on error resume next|set \w+ = createobject|wscript\.
 # JavaScript-like text (renamed .js): strong markers count alone, weak ones need two together
 _JS_STRONG = re.compile(rb"(?i)(new\s+activexobject|wscript\.shell|\beval\s*\(|fromcharcode\s*\(|document\.write\s*\(|"
                         rb"\bshell\.application|\bcreateobject\s*\()")
+_JS_MIN_WEAK, _JS_MIN_CODE = 3, 0.6  # a .txt is script-like only when it reads mostly as code
 _JS_WEAK = (re.compile(rb"\bfunction\s*\w*\s*\([^)]*\)\s*\{"), re.compile(rb"\b(var|let|const)\s+\w+\s*="),
             re.compile(rb"\breturn\b[^;\n]*;"), re.compile(rb"=>\s*\{"), re.compile(rb"\)\s*;\s*\}"))
 TEXT_EXTS = {"txt", "text", "log", "csv", "md", "ini", "cfg", "json", "xml", "dat", ""}
 # reasons that keep a file out of the output folder unless --include-risky (then saved as .quarantine)
+_PAD = b"\x00\t\r\n\x0b\x0c "
+_LONG_PAD = 1024
+_LEAD_COMMENT = re.compile(rb"(?s)\A(\s*<!--.*?-->)+\s*")
+_CODE_LINE = re.compile(rb"(?:[;{}]\s*$|^\s*(//|/\*|\*|\}|function\b|var\b|let\b|const\b|return\b|if\s*\(|for\s*\())")
 HOLD_BACK = {"content-does-not-match-extension", "script-like-text", "unreadable-container",
              "damaged-compound-file"}
 
 
 def _normalize(head):
-    """Bytes as an opener would see them: UTF-16 (BOM or alternating nulls) decoded to UTF-8, a
-    UTF-8 BOM, leading whitespace and leading NUL padding removed."""
+    """Bytes as an opener would see them: UTF-32 or UTF-16 (BOM or regular nulls, printable text)
+    decoded to UTF-8, a UTF-8 BOM, leading whitespace and leading NUL padding removed."""
     h = head
-    def _text16(x):  # UTF-16 without a BOM only if the other bytes are printable ASCII
-        return len(x) >= 16 and x.count(0) >= 6 and all(32 <= c < 127 or c in (9, 10, 13) for c in x if c)
-    if h[:2] in (b"\xff\xfe", b"\xfe\xff") or \
-            (h[1:16:2].count(0) >= 6 and _text16(h[:16])) or (h[0:16:2].count(0) >= 6 and _text16(h[:16])):
-        enc = "utf-16" if h[:2] in (b"\xff\xfe", b"\xfe\xff") else ("utf-16-le" if h[1:16:2].count(0) >= 6 else "utf-16-be")
+    def _printable(x):
+        return all(32 <= c < 127 or c in (9, 10, 13) for c in x if c)
+    enc = None
+    if h[:4] in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"):
+        enc = "utf-32"
+    elif len(h) >= 16 and _printable(h[:16]) and sum(h[i:16:4].count(0) for i in (1, 2, 3)) >= 9:
+        enc = "utf-32-le"
+    elif len(h) >= 16 and _printable(h[:16]) and sum(h[i:16:4].count(0) for i in (0, 1, 2)) >= 9:
+        enc = "utf-32-be"
+    elif h[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        enc = "utf-16"
+    elif len(h) >= 16 and h.count(0, 0, 16) >= 6 and _printable(h[:16]):
+        enc = "utf-16-le" if h[1:16:2].count(0) >= 6 else ("utf-16-be" if h[0:16:2].count(0) >= 6 else None)
+    if enc:
+        n = 4 if "32" in enc else 2
         try:
-            h = h[: len(h) - len(h) % 2].decode(enc, "ignore").encode("utf-8", "ignore")
+            h = h[: len(h) - len(h) % n].decode(enc, "ignore").encode("utf-8", "ignore")
         except (LookupError, ValueError):
             pass
     if h.startswith(b"\xef\xbb\xbf"):
         h = h[3:]
-    return h.lstrip(b"\x00\t\r\n\x0b\x0c ")
+    return h.lstrip(_PAD)
+
+
+def _code_like(head):
+    lines = [l for l in head.splitlines()[:200] if l.strip()]
+    return bool(lines) and sum(1 for l in lines if _CODE_LINE.search(l)) / len(lines) >= _JS_MIN_CODE
 
 
 def _find_pe(data, limit=4096):
@@ -138,7 +158,12 @@ def content_risk(data, name):
     whitespace or NUL padding in front does not hide the content. A type check, not a scan."""
     if not data:
         return []
-    raw, e, out = data[:8192], ext_of(name or ""), []
+    e, out = ext_of(name or ""), []
+    bom = 3 if data.startswith(b"\xef\xbb\xbf") else 0
+    pad = len(data) - bom - len(data[bom:].lstrip(_PAD))  # scan past any pad, however long
+    if pad >= _LONG_PAD:
+        out.append("large-leading-padding")
+    raw = data[bom + pad:bom + pad + 8192] if pad >= _LONG_PAD else data[:8192]
     head = _normalize(raw)
     bin_head = (raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw).lstrip(b"\x00\t\r\n\x0b\x0c ")
     for sig, what in _EXEC_MAGIC:
@@ -150,14 +175,14 @@ def content_risk(data, name):
             out.append("executable-content:windows-executable")
         elif b"\x7fELF" in raw[:1024]:
             out.append("executable-content:elf-executable")
-    if _ACTIVE_TEXT.match(head) and e not in ("html", "htm", "svg", "xml"):
+    if _ACTIVE_TEXT.match(_LEAD_COMMENT.sub(b"", head, count=1)) and e not in ("html", "htm", "svg", "xml"):
         out.append("executable-content:html-or-script")
     elif _WSH.match(head) and e not in ("vbs", "ps1", "bat", "cmd", "js", "wsf"):
         out.append("executable-content:script")
     elif e in TEXT_EXTS and e not in ("json", "xml"):
         if _JS_STRONG.search(head):
             out.append("executable-content:script")
-        elif sum(1 for r in _JS_WEAK if r.search(head)) >= 2:
+        elif sum(1 for r in _JS_WEAK if r.search(head)) >= _JS_MIN_WEAK and _code_like(head):
             out.append("script-like-text")
     want = _TYPE_MAGIC.get(e)
     if want and not any(head[:8].startswith(w) or (e == "pdf" and w in raw[:1024]) for w in want):

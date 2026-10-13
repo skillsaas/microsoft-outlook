@@ -24,6 +24,19 @@ is another mailbox (needs `.Shared` delegated scopes or application permissions)
   A sign-in blocked by policy is the organization's decision: report it, do not retry with a
   different client or flow.
 
+### Minimal sign-in sketch (documented, not run; only when no connector exists)
+```python
+import msal  # pip install msal; Microsoft's library, see learn.microsoft.com/entra/msal/python
+app = msal.PublicClientApplication(CLIENT_ID, authority="https://login.microsoftonline.com/organizations")
+flow = app.initiate_device_flow(scopes=["Mail.Read"])   # read scope first
+print(flow["message"])                                   # the user opens the URL and types the code
+tok = app.acquire_token_by_device_flow(flow)             # blocks until done or expired
+headers = {"Authorization": "Bearer " + tok["access_token"]}  # never print or log this
+# use headers with the recipes below; on a later run call app.acquire_token_silent first
+```
+CLIENT_ID is an app registration the user's organization controls; never invent or borrow one.
+Other languages: MSAL.NET, MSAL Node and MSAL Java on Microsoft Learn ("device code flow").
+
 ## Which API
 - **Microsoft Graph** for Exchange Online and Outlook.com mailboxes.
 - **Not EWS** for new Exchange Online work: Microsoft began phased EWS disablement in Exchange
