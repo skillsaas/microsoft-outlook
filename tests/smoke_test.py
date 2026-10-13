@@ -63,7 +63,7 @@ def run(script, *args):
     p = subprocess.run([sys.executable, os.path.join(SCRIPTS, script)] + list(args),
                        capture_output=True, text=True, timeout=120, cwd=TMP)
     data = None
-    if "--json" in args:
+    if any(str(x).startswith("--js") for x in args):
         try:
             data = json.loads(p.stdout)
         except ValueError:
@@ -380,9 +380,9 @@ def _():
                  b"\r\n--" + b + b"--\r\n")
     p = write("deep.eml", b"From: a@example.com\r\nSubject: deep\r\nMIME-Version: 1.0\r\n" + inner)
     c, r, _ = run("inspect_mail.py", p, "--json")
-    assert c == 0 and r["complete"] is False and r["status"] == "incomplete" and r["incomplete"], r.get("incomplete")
+    assert c == 1 and r["complete"] is False and r["status"] == "incomplete" and r["incomplete"], r.get("incomplete")
     assert r["risks"][0]["kind"] == "parse-incomplete" and r["overall_risk"] in ("medium", "high")
-    assert run("inspect_mail.py", p, "--json", "--strict")[0] == 1
+    assert run("inspect_mail.py", p, "--json", "--allow-incomplete")[0] == 0
     c, r, _ = run("extract_attachments.py", p, os.path.join(TMP, "deep-out"), "--json")
     assert c == 1 and r["status"] == "incomplete" and not os.path.exists(os.path.join(TMP, "deep-out"))
 
@@ -477,16 +477,16 @@ def _():
     rtf = (b"{\\rtf1\\ansi\\ansicpg1252\\fromhtml1 {\\*\\htmltag19 <html>}{\\*\\htmltag84 <a href=\"https://e.example/\">}"
            b"\\htmlrtf {\\htmlrtf0 Caf\\'e9 \\u8364?{\\*\\htmltag92 </a>}\\htmlrtf }\\htmlrtf0 {\\*\\htmltag27 </html>}}")
     comp = make_fixtures.lzfu_literal(rtf)
-    out, w = rtfbody.decompress(comp)
-    assert out == rtf and not w, w
+    out, w, dmg = rtfbody.decompress(comp)
+    assert out == rtf and not w and not dmg, (w, dmg)
     b = rtfbody.to_body(out)
     assert b["kind"] == "html" and b["content"] == '<html><a href="https://e.example/">Caf\u00e9 \u20ac</a></html>', b
     # a back-reference into the preloaded dictionary: "{\\rtf1" sits at offset 0, length 6
     end = struct.pack(">H", ((207 + 8) & 0xFFF) << 4)
     body = bytes([0b00001001]) + struct.pack(">H", (0 << 4) | (6 - 2)) + b"x}" + end
     data = struct.pack("<IIII", len(body) + 12, 8, rtfbody.LZFU, rtfbody.crc32(body)) + body
-    out, w = rtfbody.decompress(data)
-    assert out == b"{\\rtf1x}" and not w, (out, w)
+    out, w, dmg = rtfbody.decompress(data)
+    assert out == b"{\\rtf1x}" and not w and not dmg, (out, w, dmg)
     try:
         rtfbody.decompress(b"\0" * 8)
         raise AssertionError("no error")
@@ -494,7 +494,7 @@ def _():
         pass
     if os.environ.get("XCHECK_PYTHON"):
         code = ("import sys,compressed_rtf;sys.path.insert(0,%r);import rtfbody,os;"
-                "d=os.urandom(5000)+b'abcabcabc'*300;assert rtfbody.decompress(compressed_rtf.compress(d))==(d,[]);"
+                "d=os.urandom(5000)+b'abcabcabc'*300;assert rtfbody.decompress(compressed_rtf.compress(d))==(d,[],[]);"
                 "print('ok')" % SCRIPTS)
         cp = subprocess.run([os.environ["XCHECK_PYTHON"], "-c", code], capture_output=True, text=True)
         assert cp.stdout.strip() == "ok", cp.stderr
@@ -522,6 +522,137 @@ def _():
     assert name == "microsoft-outlook" and re.fullmatch(r"[a-z0-9-]{1,64}", name)
     assert 50 <= len(desc) <= 1024 and "<" not in desc
     assert re.search(r'(?m)^\s+version: "\d+\.\d+\.\d+"$', fm)
+    top = re.findall(r"(?m)^([A-Za-z][\w-]*):", fm)
+    allowed = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+    assert set(top) <= allowed and {"name", "description"} <= set(top), top
+    assert len(top) == len(set(top)), "duplicate top-level key"
+    comp = re.search(r'(?m)^compatibility: (.+)$', fm).group(1)
+    assert len(comp.strip('"')) <= 500
+
+
+@test("v0.1.2 RTF hardening: hostile RTF marks the parse incomplete or decodes safely, never exit 2")
+def _():
+    import mailparse, rtfbody
+    cases = {
+        "huge-u": b"{\\rtf1\\ansi \\u9999999999 ? and \\u-99999 ? done}",
+        "bad-cp": b"{\\rtf1\\ansi\\ansicpg1200 caf\\'e9}",
+        "bin": b"{\\rtf1\\ansi \\bin5 HELLO after}",
+        "deep": b"{\\rtf1 " + b"{" * 250 + b"x" + b"}" * 250 + b"}",
+    }
+    for k, rtf in cases.items():
+        m = mailparse._new("msg")
+        mailparse._rtf_body(m, make_fixtures.lzfu_literal(rtf))
+        if k == "deep":
+            assert m["incomplete"] and "nesting" in m["incomplete"][0], m
+        else:
+            assert not m["incomplete"], (k, m["incomplete"])
+    assert "\ufffd" in rtfbody.to_body(cases["huge-u"])["content"]
+    assert rtfbody.to_body(cases["bad-cp"])["content"].startswith("caf")
+    assert rtfbody.to_body(cases["bin"])["content"].strip() == "after"
+    # MELA (uncompressed) with a nonzero CRC field is damaged; LZFu CRC mismatch too
+    body = b"{\\rtf1 hi}"
+    mela = struct.pack("<IIII", len(body) + 12, len(body), rtfbody.MELA, 1234) + body
+    m = mailparse._new("msg")
+    mailparse._rtf_body(m, mela)
+    assert m["text"] == "hi" and any("CRC" in x for x in m["incomplete"]), m
+    bad = bytearray(make_fixtures.lzfu_literal(body))
+    bad[12] ^= 0xFF
+    m = mailparse._new("msg")
+    mailparse._rtf_body(m, bytes(bad))
+    assert any("CRC" in x for x in m["incomplete"]), m
+    # output cap on a single huge text run
+    out = rtfbody.to_body(b"{\\rtf1 " + b"a" * 5000 + b"}", max_out=1000)
+    assert len(out["content"]) <= 1000 and out["truncated"]
+
+
+@test("v0.1.2: an Outlook .msg or winmail.dat attached under any name is detected by bytes and parsed")
+def _():
+    import base64
+    msg = open(FX["sample.msg"], "rb").read()
+    dat = open(FX["winmail.dat"], "rb").read()
+    def part(name, data):
+        return (b"--B\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + name + b"\r\n\r\n" + base64.encodebytes(data) + b"\r\n")
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part(b"scan.bin", msg) + part(b"data.bin", dat) + b"--B--\r\n")
+    c, r, _ = run("inspect_mail.py", write("hidden-msg.eml", eml), "--json")
+    kinds_ = {a["index"]: a["kind"] for a in r["attachments"]}
+    assert kinds_["1"] == "msg" and kinds_["2"] == "tnef", kinds_
+    assert any(i.startswith("1/") for i in kinds_) and any(i.startswith("2/") for i in kinds_), kinds_
+    assert r["complete"] is True and c == 0, r["incomplete"]
+    import msgcfb
+    assert not msgcfb.is_msg(b"not a cfb") and msgcfb.is_msg(msg)
+
+
+@test("v0.1.2: --timeout cleans the hidden .extract-* folder; the timer is cancelled on success")
+def _():
+    parent = os.path.join(TMP, "tparent")
+    os.makedirs(parent, exist_ok=True)
+    parts = b"".join(b"--B\r\nContent-Disposition: attachment; filename=f%d.bin\r\n\r\n%s\r\n" % (i, b"z" * 200000)
+                     for i in range(300))
+    p = write("slowwrite.eml", b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B"
+              b"\r\n\r\n" + parts + b"--B--\r\n")
+    for t in ("0.05", "0.3", "0.6"):
+        out = os.path.join(parent, "o" + t)
+        c, r, txt = run("extract_attachments.py", p, out, "--json", "--timeout", t)
+        assert c in (0, 3), (c, txt[:300])
+        assert not [f for f in os.listdir(parent) if f.startswith(".extract-")], os.listdir(parent)
+        if c == 3:
+            assert r["status"] == "refused" and not os.path.exists(out)
+    # deterministic: run extract in-process, and fire the registered timeout cleanup mid-write
+    import io, contextlib, extract_attachments as ex
+    captured, real_on, real_rename = [], mailsafe.on_timeout, os.rename
+    mailsafe.on_timeout = lambda fn: (captured.append(fn), fn)[1]
+    notes = []
+
+    def fake_rename(src, dst):
+        notes.append(captured[-1]())
+        raise OSError("simulated: timer fired during the write")
+    os.rename = fake_rename
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = ex.main([FX["phish.eml"], os.path.join(parent, "mid"), "--json", "--timeout", "0"])
+    finally:
+        os.rename, mailsafe.on_timeout = real_rename, real_on
+        mailsafe._RUN["done"] = False
+    assert rc == 3 and notes and "removed" in notes[0], notes
+    assert not [f for f in os.listdir(parent) if f.startswith(".extract-")] and not os.path.exists(os.path.join(parent, "mid"))
+    for _i in range(3):
+        c, r, txt = run("inspect_mail.py", FX["clean.eml"], "--json", "--timeout", "2")
+        assert c == 0 and txt.count('"schema"') == 1, txt[:200]
+
+
+@test("v0.1.2: inspect_ics survives month 00 and year 9999 with --tz; boundary*= counts toward the cap")
+def _():
+    ics = (b"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTART;TZID=Pakistan Standard Time:20260014T100000\r\n"
+           b"END:VEVENT\r\nBEGIN:VEVENT\r\nUID:b\r\nDTSTART:99991231T235959Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+    c, r, txt = run("inspect_ics.py", write("bad-dates.ics", ics), "--json", "--tz", "Pacific/Kiritimati")
+    assert c == 0 and r["ok"], txt[:300]
+    assert r["events"][0]["start"]["converted"] is None and r["events"][1]["start"]["converted"] is None
+    q = write("bstar.eml", b"From: a@example.com\r\n\r\n" + b"Content-Type: multipart/mixed; boundary*0=x\r\n" * 2100)
+    c, r, _ = run("inspect_mail.py", q, "--json")
+    assert c == 3 and "boundar" in r["error"], r
+
+
+@test("v0.1.2: --js and --json=1 give JSON usage errors (no abbreviations)")
+def _():
+    for flag in ("--js", "--json=1"):
+        c, r, txt = run("inspect_mail.py", FX["clean.eml"], flag)
+        assert c == 2 and r and r["status"] == "error" and r["error"].startswith("usage"), (flag, txt[:200])
+
+
+@test("real files: every file in REAL_FIXTURES_DIR gives JSON without a traceback (optional)")
+def _():
+    d = os.environ.get("REAL_FIXTURES_DIR")
+    if not d:
+        raise Skip("set REAL_FIXTURES_DIR to a folder of Outlook-saved .msg/.eml/winmail.dat files")
+    n = 0
+    for f in sorted(os.listdir(d)):
+        if f.lower().rsplit(".", 1)[-1] in ("msg", "eml", "dat"):
+            c, r, txt = run("inspect_mail.py", os.path.join(d, f), "--json", "--allow-incomplete")
+            assert c in (0, 1, 2, 3) and r is not None and "Traceback" not in txt, (f, txt[:300])
+            n += 1
+    assert n, "no .msg, .eml or .dat files in REAL_FIXTURES_DIR"
 
 
 # ---------------- inspect_ics ----------------

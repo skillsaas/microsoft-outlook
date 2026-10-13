@@ -8,6 +8,7 @@ Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, rea
 ## Support matrix (what this skill does with each format)
 | Format | Read by the scripts | Extract attachments | Tested on | Not covered |
 | :--- | :--- | :--- | :--- | :--- |
+| attached `.msg` or `winmail.dat` inside any message | yes since 0.1.2: detected by bytes, whatever the name or MIME type, and parsed as a nested message | its attachments too | synthetic | |
 | `.eml` (MIME) | yes, `inspect_mail.py` | yes | stdlib parser; synthetic fixtures | S/MIME decryption |
 | `.msg` | yes | yes | synthetic fixture cross-checked with olefile and extract-msg | real Outlook-saved files untested; named properties |
 | `winmail.dat` (TNEF) | yes | yes | 19 tnefparse sample files | MAPI property types outside MS-OXTNEF basics |
@@ -47,6 +48,11 @@ Detect by content, not extension; `inspect_mail.py` does this.
   `0x7FFE` hidden.
 - A sent-from-Outlook .msg often has no transport headers, so there are no
   `Authentication-Results` to read; say so.
+- RTF hardening (0.1.2): `\uN` values outside Unicode become U+FFFD, an unknown `\ansicpg`
+  falls back to cp1252 (checked with `codecs.lookup`), `\binN` data is skipped unread, a MELA
+  stream with a nonzero CRC or an LZFu CRC mismatch, a missing end marker, nesting over 200
+  groups or the 10 M character output cap mark the parse incomplete. Any other decoder error
+  becomes "RTF body not decoded" under `incomplete`; the rest of the message is still reported.
 - **Compressed RTF** (`0x1009`, MS-OXRTFCP) is decoded when it is the only body (0.1.1,
   `rtfbody.py`): LZFu decompression with the spec's CRC check, then HTML is taken back out of
   RTF that wraps HTML (`\fromhtml1`, MS-OXRTFEX) so links are checked, or plain text from other
@@ -89,7 +95,7 @@ Detect by content, not extension; `inspect_mail.py` does this.
 | :--- | :--- | :--- |
 | Input size | 50 MB inspect, 150 MB extract (`--max-bytes`) | exit 3 |
 | Attachments, nested included | 500 (`--max-attachments`) | exit 3, nothing written |
-| MIME boundaries declared | 2,000 | exit 3, before parsing |
+| MIME boundaries incl. RFC 2231 `boundary*=` forms | 2,000 | exit 3, before parsing |
 | MIME nesting | 50 levels | deeper parts unread: `complete: false` |
 | Nested messages (.msg in .msg, rfc822, TNEF) | 4 levels | deeper ones unread: `complete: false` |
 | Wall clock | 60 s inspect, 120 s extract (`--timeout`) | exit 3 |
@@ -101,7 +107,7 @@ what was missed in `incomplete`; extract writes nothing unless `--allow-incomple
 | :--- | :--- |
 | `tests/fixtures/sample.msg` (written from MS-CFB and MS-OXMSG by `make_fixtures.py`) read by olefile 0.47 and extract-msg 0.56.1 | Same subject, sender, To, Cc, body, 3 attachments, embedded message and its attachment bytes. Run it with `XCHECK_PYTHON=/path/to/python tests/smoke_test.py` |
 | `tnef.py` against tnefparse 1.4.0 on its 19 sample `.tnef` files | Same attachment count and names on all 19 (29 attachments). Bytes equal except where tnefparse strips trailing NUL bytes from data and keeps the 16-byte interface id in front of an OLE object; `tnef.py` keeps the data whole and drops the id, giving a valid Compound File |
-| Real .msg files saved by Outlook | Not tested: none available on the box. Fixture is synthetic |
+| Real .msg files saved by Outlook | **Not tested**: none available on the box; every .msg result comes from a synthetic fixture. To test your own, put Outlook-saved files in a folder and run `REAL_FIXTURES_DIR=/path python tests/smoke_test.py`: each .msg/.eml/.dat must give JSON with no traceback and exit 0 to 3. No real-file results are claimed here |
 | Python `email` on `.eml` | Standard library behavior; fixtures cover nested `message/rfc822`, TNEF inside MIME, RFC 2231 names |
 
 ## .pst and .ost (orientation only)

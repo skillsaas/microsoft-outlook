@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2 (2026-10-13)
+
+- RTF hardening: `\u` values clamped to U+FFFD, `\ansicpg` checked with codecs.lookup (falls back to cp1252), `\binN` data skipped, MELA CRC must be 0, any decode error or truncation marks the parse incomplete with a report instead of exit 2 with nothing.
+- One exit-code policy for incomplete parses: exit 1 with `status: incomplete` in every script; `inspect_mail.py --allow-incomplete` replaces `--strict`. Documented in SKILL.md and json-output.md.
+- Timeout: a shared lock means only one result is printed, the timer is cancelled on exit, and a timeout during extraction removes the hidden `.extract-*` folder and reports it under `cleanup`.
+- Attached .msg and winmail.dat files inside an .eml are detected by their bytes and parsed.
+- inspect_ics.py: month 00 and year 9999 handled, ZoneInfo lookups guarded, catch-all JSON error.
+- `boundary*=` depth bypass closed; `--js` and `--json=1` now give a JSON error (allow_abbrev off).
+- Graph recipes re-checked against Microsoft Learn examples; third-party upload rule is now safety rule 2; quarantine is not a security boundary; PSL limit noted in the reply-to detail.
+- New chained recipe (inspect, approval, extract), stated default caps, skill.json scripts map.
+- REAL_FIXTURES_DIR hook; real Outlook files remain untested and the docs say so.
+- Tests: 43 plus 3 optional (cross-check, TNEF corpus, real files). Frontmatter test checks the allowed keys.
+
 ## 0.1.1 (2026-10-13)
 Round 1 review fixes (12 reviews; synthesis in the feedback folder). Not published.
 - **Partial parses are never clean (H1).** MIME nesting past 50 levels, nested messages past 4,

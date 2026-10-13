@@ -3,7 +3,7 @@
 winmail.dat. Read-only. Standard library only.
 
 Usage: python inspect_mail.py FILE [--json] [--body N] [--show-targets] [--fail-on-risk high|medium]
-                                    [--strict] [--max-bytes N] [--max-attachments N] [--timeout S]
+                                    [--allow-incomplete] [--max-bytes N] [--max-attachments N] [--timeout S]
 
 Reports headers, Authentication-Results, recipients, a cleaned body preview, every link (scheme
 and host; full targets only with --show-targets), HTML traps (forms, scripts, remote images,
@@ -13,10 +13,13 @@ Links are analyzed as text; none is ever fetched or followed.
 
 If any cap or error stopped part of the file from being read, "complete" is false, "incomplete"
 says what was missed, and a "parse-incomplete" risk (medium) is added, so the report never looks
-clean when it is partial. --strict turns that into exit 1.
+clean when it is partial. The full report is still printed.
 
-Exit codes (JSON "status" in quotes): 0 "ok" or "incomplete"; 1 "risk-threshold" (--fail-on-risk level
-reached) or "incomplete" with --strict; 2 "error" (not an email file, corrupt, unsupported);
+Incomplete-parse policy (same in every script): a partial parse exits 1 with status "incomplete"
+unless --allow-incomplete is given, which makes it exit 0 (status stays "incomplete").
+
+Exit codes (JSON "status" in quotes): 0 "ok" (or "incomplete" with --allow-incomplete);
+1 "risk-threshold" (--fail-on-risk level reached) or "incomplete"; 2 "error" (not an email file, corrupt, unsupported);
 3 "refused" (over --max-bytes, default 50 MB; over --max-attachments, default 500; or over
 --timeout, default 60 seconds).
 """
@@ -44,7 +47,8 @@ def header_risks(h, auth):
     for r in h.get("reply_to") or []:
         if fdom and _dom(r.get("address")) and _dom(r.get("address")) != fdom:
             out.append({"risk": "high", "kind": "reply-to-other-domain",
-                        "detail": "replies go to %s, not %s" % (_dom(r.get("address")), fdom)})
+                        "detail": "replies go to %s, not %s (approximate domain comparison, no Public Suffix List)"
+                        % (_dom(r.get("address")), fdom)})
     name = frm.get("name") or ""
     if "@" in name:
         shown = [w.strip("<>()[]'\",;") for w in name.split() if "@" in w]
@@ -104,7 +108,7 @@ def att_entries(m, prefix=""):
     for i, a in enumerate(m["attachments"], 1):
         idx = "%s%d" % (prefix, i)
         risk, reasons = mailsafe.attachment_risk(a["name"], a["content_type"])
-        if a["kind"] in ("embedded-message", "tnef"):
+        if a["kind"] in ("embedded-message", "tnef", "msg"):
             reasons.append("nested-message")
         if a["kind"] == "ole-object":
             risk, reasons = "high", reasons + ["ole-object"]
@@ -201,7 +205,7 @@ def main(argv=None):
     ap.add_argument("--body", type=int, default=600, help="body preview characters, 0 for none")
     ap.add_argument("--show-targets", action="store_true", help="print full link targets")
     ap.add_argument("--fail-on-risk", choices=["high", "medium"])
-    ap.add_argument("--strict", action="store_true", help="exit 1 when the parse is incomplete")
+    ap.add_argument("--allow-incomplete", action="store_true", help="exit 0 even when the parse is incomplete")
     ap.add_argument("--max-bytes", type=int, default=50 * 1024 * 1024)
     ap.add_argument("--max-attachments", type=int, default=500, help="refuse above this many, nested included")
     ap.add_argument("--timeout", type=float, default=60, help="wall-clock seconds, 0 for none")
@@ -225,15 +229,18 @@ def main(argv=None):
         return mailsafe.fail(a.json, 3, "nesting too deep to read safely")
     except Exception as e:  # corrupt input must not produce a traceback
         return mailsafe.fail(a.json, 2, "could not parse: %s" % type(e).__name__)
-    r = report(m, a.file, a.body, a.show_targets)
+    try:
+        r = report(m, a.file, a.body, a.show_targets)
+    except Exception as e:  # a surprise in reporting must still give JSON
+        return mailsafe.fail(a.json, 2, "could not build the report: %s" % type(e).__name__)
     code = 0
     if a.fail_on_risk and ORDER[r["overall_risk"]] >= ORDER[a.fail_on_risk]:
         r["status"], code = "risk-threshold", 1
-    elif a.strict and not r["complete"]:
+    elif not r["complete"] and not a.allow_incomplete:
         code = 1
     mailsafe.emit(r, a.json, human)
     return code
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(mailsafe.finish(main()))

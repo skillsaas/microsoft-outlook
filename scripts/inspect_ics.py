@@ -53,9 +53,15 @@ def windows_to_iana(name):
 def _local_check(dt, zone):
     """'nonexistent' (in a DST gap), 'ambiguous' (in a DST overlap) or None."""
     a, b = dt.replace(tzinfo=zone, fold=0), dt.replace(tzinfo=zone, fold=1)
-    if a.utcoffset() == b.utcoffset():
+    try:
+        if a.utcoffset() == b.utcoffset():
+            return None
+    except (OverflowError, ValueError):
         return None
-    back = a.astimezone(datetime.timezone.utc).astimezone(zone).replace(tzinfo=None)
+    try:
+        back = a.astimezone(datetime.timezone.utc).astimezone(zone).replace(tzinfo=None)
+    except (OverflowError, ValueError):
+        return None
     return "nonexistent" if back != dt else "ambiguous"
 
 
@@ -156,7 +162,12 @@ def when(params, value, tz):
     if tz and zoneinfo and not d["all_day"]:
         m = re.fullmatch(r"(\d{8}T\d{6})(Z?)", value)
         if m:
-            dt = datetime.datetime.strptime(m.group(1), "%Y%m%dT%H%M%S")
+            try:
+                dt = datetime.datetime.strptime(m.group(1), "%Y%m%dT%H%M%S")
+            except ValueError:
+                d["converted"] = None
+                d["note"] = "not a valid date-time (for example month 00): not converted"
+                return d
             src = None
             if m.group(2):
                 src = datetime.timezone.utc
@@ -165,8 +176,11 @@ def when(params, value, tz):
                     src = zoneinfo.ZoneInfo(d["tzid"])
                 except (zoneinfo.ZoneInfoNotFoundError, ValueError):
                     iana = windows_to_iana(d["tzid"])
+                    try:
+                        src = zoneinfo.ZoneInfo(iana) if iana else None
+                    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+                        src, iana = None, None
                     if iana:
-                        src = zoneinfo.ZoneInfo(iana)
                         d["iana"] = iana
                         d["note"] = "Windows zone mapped to %s via CLDR; the file's VTIMEZONE rules were not evaluated" % iana
                     else:
@@ -182,7 +196,11 @@ def when(params, value, tz):
             else:
                 d["note"] = "floating time (no zone): means local time wherever it is opened"
             if src:
-                d["converted"] = dt.replace(tzinfo=src).astimezone(zoneinfo.ZoneInfo(tz)).isoformat()
+                try:
+                    d["converted"] = dt.replace(tzinfo=src).astimezone(zoneinfo.ZoneInfo(tz)).isoformat()
+                except (OverflowError, ValueError):
+                    d["converted"] = None
+                    d["note"] = "date out of convertible range (for example year 9999): not converted"
     return d
 
 
@@ -239,6 +257,16 @@ def event(c, tz, show):
 
 
 def main(argv=None):
+    try:
+        return _main(argv)
+    except SystemExit:
+        raise
+    except Exception as e:  # hostile input must give JSON, never a traceback
+        as_json = "--json" in (argv if argv is not None else sys.argv[1:])
+        return mailsafe.fail(as_json, 2, "could not parse: %s" % type(e).__name__)
+
+
+def _main(argv=None):
     ap = mailsafe.ArgParser(description=__doc__.split("\n")[0])
     ap.add_argument("file")
     ap.add_argument("--json", action="store_true")
@@ -304,7 +332,7 @@ def main(argv=None):
                       "detail": "accepting or declining sends a reply as the user: ask first"})
     overall = max([r["risk"] for r in risks], key=lambda r: ORDER[r], default="low")
     overall = "low" if overall == "info" else overall
-    r = {"ok": True, "status": "ok", "error": None, "file": os.path.basename(a.file), "method": method,
+    r = {"ok": True, "status": "ok", "error": None, "complete": True, "incomplete": [], "file": os.path.basename(a.file), "method": method,
          "prodid": mailsafe.clean_text(first(cal, "PRODID")[1], 200), "timezones": tzids,
          "events": events, "risks": risks, "overall_risk": overall,
          "not_checked": ["RRULE occurrences are not expanded", "VTIMEZONE rules are not evaluated (zone names are used)",
@@ -339,4 +367,4 @@ def _iana(t):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(mailsafe.finish(main()))

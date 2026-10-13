@@ -40,7 +40,22 @@ def _new(fmt):
             "warnings": [], "flags": [], "incomplete": []}
 
 
+def _promote(a):
+    """An attachment whose bytes are an Outlook message or TNEF is read as one, whatever its
+    name or MIME type says (a .msg sent as application/octet-stream, a renamed winmail.dat).
+    A Compound File counts as a .msg only if it has the MS-OXMSG property stream, so Word and
+    Excel 97-2003 files stay ordinary files."""
+    if a["kind"] != "file" or not a["data"]:
+        return
+    d = a["data"]
+    if d[:8] == msgcfb.SIG and msgcfb.is_msg(d):
+        a["kind"] = "msg"
+    elif len(d) >= 4 and int.from_bytes(d[:4], "little") == tnef.SIG:
+        a["kind"] = "tnef"
+
+
 def _add_att(m, a):
+    _promote(a)
     _count["n"] += 1
     if _count["n"] > LIMITS["max_attachments"]:
         raise LimitError("over %d attachments in total, nested ones included (--max-attachments)"
@@ -122,7 +137,8 @@ MAX_BOUNDARIES = 2000
 def from_eml(data, depth=0):
     # The stdlib parser builds the whole tree first. Refuse absurd multipart nesting up front so it
     # cannot exhaust memory or the recursion limit (each nested multipart declares a boundary).
-    nb = len(re.findall(rb"(?i)boundary\s*=", data))
+    # RFC 2231 forms count too: boundary*=, boundary*0=, boundary*0*=
+    nb = len(re.findall(rb"(?i)boundary(?:\*\d*\*?)?\s*=", data))
     if nb > MAX_BOUNDARIES:
         raise LimitError("%d MIME boundaries declared, over the %d cap" % (nb, MAX_BOUNDARIES))
     # Every MIME part starts at a "--boundary" line, so this bounds the part count cheaply,
@@ -206,12 +222,13 @@ def _rtf_body(m, raw):
     if not isinstance(raw, bytes) or m["html"] or m["text"]:
         return
     try:
-        rtf, w = rtfbody.decompress(raw)
+        rtf, w, damaged = rtfbody.decompress(raw)
         b = rtfbody.to_body(rtf)
     except rtfbody.RtfError as e:
         m["incomplete"].append("RTF body not decoded: %s" % e)
         return
     m["warnings"].extend(w + b["warnings"])
+    m["incomplete"].extend("RTF body: %s" % x for x in damaged + b["truncated"])
     if b["kind"] == "html":
         m["html"] = b["content"]
     else:

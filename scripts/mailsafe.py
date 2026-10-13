@@ -15,10 +15,11 @@ import json
 import os
 import re
 import sys
+import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -116,6 +117,7 @@ def attachment_risk(name, content_type=None, size=None):
     # phishing carrier and can run script when opened from disk.
     high = {"outlook-blocked-type", "bidi-override-in-name", "double-extension",
             "executable-content-type", "padded-name", "opens-in-browser"}
+    reasons = list(dict.fromkeys(reasons))  # each reason once (a .msg is a container by name and type)
     if high & set(reasons):
         return "high", reasons
     if {"macro-capable-office", "container", "invisible-chars-in-name",
@@ -220,22 +222,44 @@ def urls_in_text(s, cap=500):
     return found
 
 
+# One result per run: the main thread and the --timeout watchdog both print through this lock,
+# and whichever comes first wins, so output is never two JSON documents or a torn one.
+_LOCK = threading.Lock()
+_RUN = {"done": False, "cleanup": [], "timer": None}
+
+
 def emit(obj, as_json, human):
     """Print JSON or the human text. obj must have ok and error."""
-    if as_json:
-        print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
-    else:
-        print(human(obj) if obj.get("ok") else "error: %s" % obj.get("error"))
+    with _LOCK:
+        if _RUN["done"]:
+            return
+        _RUN["done"] = True
+        if as_json:
+            print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
+        else:
+            print(human(obj) if obj.get("ok") else "error: %s" % obj.get("error"))
+        sys.stdout.flush()
 
 
 def fail(as_json, code, msg, **extra):
     d = {"ok": False, "status": "refused" if code == EXIT_REFUSED else "error", "error": msg}
     d.update(extra)
-    if as_json:
-        print(json.dumps(d, indent=2, ensure_ascii=False))
-    else:
-        print("error: %s" % msg, file=sys.stderr)
+    with _LOCK:
+        if not _RUN["done"]:
+            _RUN["done"] = True
+            _print_fail(as_json, d)
     return code
+
+
+def _print_fail(as_json, d):
+    if as_json:
+        print(json.dumps(d, indent=2, ensure_ascii=False, default=str))
+    else:
+        print("error: %s" % d["error"], file=sys.stderr)
+        for x in d.get("incomplete") or []:
+            print("  not read: %s" % x, file=sys.stderr)
+    sys.stdout.flush()
+    sys.stderr.flush()
 
 
 def read_capped(path, cap):
@@ -252,9 +276,14 @@ def read_capped(path, cap):
 class ArgParser(argparse.ArgumentParser):
     """argparse that reports usage errors as JSON (status "error", exit 2) when --json is given."""
 
+    def __init__(self, *a, **k):
+        k.setdefault("allow_abbrev", False)  # "--js" must not silently mean --json
+        super().__init__(*a, **k)
+
     def error(self, message):
-        if "--json" in sys.argv[1:]:
-            print(json.dumps({"ok": False, "status": "error", "error": "usage: %s" % message}, indent=2))
+        # JSON for any spelling that looks like a JSON request: --json, --json=1, --js
+        if any(x == "--json" or x.startswith("--json=") or x == "--js" for x in sys.argv[1:]):
+            fail(True, EXIT_UNSUPPORTED, "usage: %s" % message)
             sys.exit(EXIT_UNSUPPORTED)
         super().error(message)
 
@@ -264,19 +293,52 @@ def watchdog(seconds, as_json):
     timer thread, so a pathological file cannot keep the process busy. 0 disables it."""
     if not seconds or seconds <= 0:
         return None
-    import threading
 
     def fire():
-        try:
-            fail(as_json, EXIT_REFUSED, "time limit of %gs reached (--timeout); nothing was completed" % seconds)
-            sys.stdout.flush()
-            sys.stderr.flush()
-        finally:
-            os._exit(EXIT_REFUSED)
+        with _LOCK:
+            if _RUN["done"]:
+                return  # the result is already out; the main thread is exiting normally
+            _RUN["done"] = True
+            notes = []
+            try:
+                for fn in list(_RUN["cleanup"]):
+                    try:
+                        r = fn()
+                        if r:
+                            notes.append(r)
+                    except Exception as e:  # report, never hang in cleanup
+                        notes.append("cleanup failed: %s" % type(e).__name__)
+                d = {"ok": False, "status": "refused",
+                     "error": "time limit of %gs reached (--timeout); nothing was completed" % seconds}
+                if notes:
+                    d["cleanup"] = notes
+                _print_fail(as_json, d)
+            finally:
+                os._exit(EXIT_REFUSED)
     t = threading.Timer(seconds, fire)
     t.daemon = True
     t.start()
+    _RUN["timer"] = t
     return t
+
+
+def on_timeout(fn):
+    """Register a cleanup to run if the watchdog fires; fn returns a short note or None."""
+    _RUN["cleanup"].append(fn)
+    return fn
+
+
+def off_timeout(fn):
+    if fn in _RUN["cleanup"]:
+        _RUN["cleanup"].remove(fn)
+
+
+def finish(code):
+    """Cancel the watchdog and return the exit code; every script's __main__ goes through here."""
+    t = _RUN["timer"]
+    if t is not None:
+        t.cancel()
+    return code
 
 
 # What these scripts never check, listed in every JSON report so a reader does not assume more.

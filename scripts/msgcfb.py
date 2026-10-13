@@ -231,6 +231,15 @@ def read_props(cfb, idx, header_len, depth=0, max_depth=4):
     return props, recips, atts
 
 
+def is_msg(data):
+    """True if data is a Compound File whose root holds the MS-OXMSG property stream."""
+    try:
+        cfb = Cfb(data)
+        return any(cfb.entries[c]["name"] == "__properties_version1.0" for c in cfb.children(0))
+    except (CfbError, struct.error, IndexError, ValueError, RecursionError):
+        return False
+
+
 def open_msg(data, max_stream=64 * 1024 * 1024):
     cfb = Cfb(data, max_stream)
     return read_props(cfb, 0, 32)

@@ -1,6 +1,6 @@
 {
   "name": "microsoft-outlook",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts only: never sends mail itself.",
   "entry": "SKILL.md",
   "skill_md_url": "https://raw.githubusercontent.com/skillsaas/microsoft-outlook/main/SKILL.md",
@@ -75,5 +75,10 @@
     "agent-skills",
     "skill-md"
   ],
-  "selfcheck": "python tests/smoke_test.py"
+  "selfcheck": "python tests/smoke_test.py",
+  "scripts": {
+    "inspect_mail": "scripts/inspect_mail.py",
+    "extract_attachments": "scripts/extract_attachments.py",
+    "inspect_ics": "scripts/inspect_ics.py"
+  }
 }

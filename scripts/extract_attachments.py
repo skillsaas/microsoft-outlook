@@ -17,7 +17,7 @@ Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include
   by path ("2/1" is attachment 1 of attachment 2).
 - manifest.json (mode 0600) lists every attachment: index, original and saved name, size,
   SHA-256, risk.
-- Fails closed on a partial parse: if any part of the file could not be read (depth cap, a broken
+- Incomplete-parse policy (same in every script): fails closed on a partial parse: if any part of the file could not be read (depth cap, a broken
   nested message, unreadable TNEF properties), nothing is written and the exit is 1 with
   status "incomplete". --allow-incomplete saves what was read and still reports what was not.
 
@@ -154,13 +154,9 @@ def main(argv=None):
         return mailsafe.fail(a.json, 2, "could not parse: %s" % type(e).__name__)
     inc = m.get("incomplete") or []
     if inc and not a.allow_incomplete:
-        if a.json:
-            print(json.dumps({"ok": False, "status": "incomplete", "error": "parse incomplete: nothing was saved",
-                              "incomplete": inc[:50], "hint": "inspect_mail.py shows what was read; "
-                              "--allow-incomplete saves it anyway"}, indent=2, ensure_ascii=False))
-        else:
-            print("error: parse incomplete, nothing was saved:\n  " + "\n  ".join(inc[:20]), file=sys.stderr)
-        return 1
+        return mailsafe.fail(a.json, 1, "parse incomplete: nothing was saved", status="incomplete",
+                             incomplete=inc[:50], hint="inspect_mail.py shows what was read; "
+                             "--allow-incomplete saves it anyway")
     try:
         items = plan(m, a)
     except OverflowError as e:
@@ -168,6 +164,13 @@ def main(argv=None):
     saved = [i for i in items if i["saved_as"]]
     if not a.dry_run and saved:
         tmp = tempfile.mkdtemp(prefix=".extract-", dir=parent)
+
+        def _cleanup(tmp=tmp):
+            # runs from the --timeout watchdog: remove the hidden partial folder and say so
+            shutil.rmtree(tmp, ignore_errors=True)
+            return ("partial output folder %s removed" % os.path.basename(tmp)) if not os.path.exists(tmp) \
+                else ("could not remove partial output folder %s: delete it by hand" % tmp)
+        mailsafe.on_timeout(_cleanup)
         try:
             for it in saved:
                 fd = os.open(os.path.join(tmp, it["saved_as"]),
@@ -183,7 +186,9 @@ def main(argv=None):
             if os.path.lexists(out):
                 raise FileExistsError("OUTDIR appeared while writing")
             os.rename(tmp, out)
+            mailsafe.off_timeout(_cleanup)
         except Exception as e:
+            mailsafe.off_timeout(_cleanup)
             shutil.rmtree(tmp, ignore_errors=True)
             return mailsafe.fail(a.json, 3, "write failed, nothing kept: %s" % e)
     for i in items:
@@ -202,8 +207,8 @@ def main(argv=None):
                                                      ("  skipped: " + i["skipped"]) if i["skipped"] else ""))
         return "\n".join(lines)
     mailsafe.emit(r, a.json, human)
-    return 1 if (risky or inc) else 0
+    return 1 if risky else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(mailsafe.finish(main()))

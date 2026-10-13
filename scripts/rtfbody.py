@@ -5,6 +5,7 @@ uncompressed MELA form), with the CRC check from that spec. to_body(): pulls HTM
 RTF that encapsulates HTML (MS-OXRTFEX, \\fromhtml1) or plain text out of ordinary RTF.
 Standard library only. Embedded objects and pictures in the RTF are skipped, never decoded.
 """
+import codecs
 import re
 import struct
 
@@ -41,22 +42,30 @@ def crc32(data):
 
 
 def decompress(data, max_out=32 * 1024 * 1024):
-    """Return (rtf_bytes, warnings). Raises RtfError on a malformed header or stream."""
+    """Return (rtf_bytes, warnings, damaged). damaged lists problems that mean the body may be
+    wrong or cut short (CRC mismatch, no end marker, short output); callers mark the parse
+    incomplete for those. Raises RtfError on a malformed header or stream."""
     if len(data) < 16:
         raise RtfError("compressed RTF shorter than its 16-byte header")
     comp_size, raw_size, ctype, crc = struct.unpack_from("<IIII", data, 0)
-    warnings = []
+    warnings, damaged = [], []
     if raw_size > max_out:
         raise RtfError("declared RTF size %d is over the %d byte cap" % (raw_size, max_out))
     body = data[16:4 + comp_size] if comp_size >= 12 else b""
     if comp_size + 4 != len(data):
         warnings.append("compressed RTF size field %d does not match the stream (%d bytes)" % (comp_size, len(data) - 4))
     if ctype == MELA:
-        return data[16:16 + raw_size], warnings
+        # MS-OXRTFCP: for uncompressed (MELA) content the CRC field MUST be 0
+        if crc != 0:
+            damaged.append("uncompressed RTF has a nonzero CRC field (spec requires 0)")
+        out = data[16:16 + raw_size]
+        if len(out) < raw_size:
+            damaged.append("uncompressed RTF is %d bytes, header says %d" % (len(out), raw_size))
+        return out, warnings, damaged
     if ctype != LZFU:
         raise RtfError("unknown compressed RTF type 0x%08x" % ctype)
     if crc32(body) != crc:
-        warnings.append("compressed RTF CRC mismatch")
+        damaged.append("compressed RTF CRC mismatch")
     d = bytearray(4096)
     d[:207] = _PREBUF
     w = 207
@@ -91,10 +100,10 @@ def decompress(data, max_out=32 * 1024 * 1024):
             if len(out) > max_out:
                 raise RtfError("decompressed RTF over the %d byte cap" % max_out)
     if not done:
-        warnings.append("compressed RTF has no end marker (truncated?)")
+        damaged.append("compressed RTF has no end marker (truncated?)")
     if len(out) < raw_size:
-        warnings.append("decompressed RTF is %d bytes, header says %d" % (len(out), raw_size))
-    return bytes(out[:raw_size]) if raw_size else bytes(out), warnings
+        damaged.append("decompressed RTF is %d bytes, header says %d" % (len(out), raw_size))
+    return (bytes(out[:raw_size]) if raw_size else bytes(out)), warnings, damaged
 
 
 _TOKEN = re.compile(rb"\\([a-zA-Z]{1,32})(-?\d{1,10})? ?|\\'([0-9a-fA-F]{2})|\\(.)|([{}])|([\r\n]+)|([^\\{}\r\n]+)", re.S)
@@ -104,8 +113,29 @@ _SKIP_DEST = {b"fonttbl", b"colortbl", b"stylesheet", b"info", b"pict", b"object
 
 
 def to_body(rtf, max_out=10 * 1024 * 1024):
-    """Return {"kind": "html" | "text", "content": str, "warnings": [...]}. HTML comes only from
-    RTF marked \\fromhtml1 (MS-OXRTFEX); anything else is reduced to plain text."""
+    """Return {"kind", "content", "warnings", "truncated": [...]}. HTML comes only from RTF marked
+    \\fromhtml1 (MS-OXRTFEX); anything else is reduced to plain text. "truncated" lists reasons
+    the body was cut short; callers mark the parse incomplete. Any unexpected error in hostile
+    RTF is raised as RtfError, never as a bare ValueError or LookupError."""
+    try:
+        return _to_body(rtf, max_out)
+    except RtfError:
+        raise
+    except (ValueError, LookupError, OverflowError, RecursionError, MemoryError) as e:
+        raise RtfError("RTF body unreadable: %s" % type(e).__name__)
+
+
+def _uchar(v):
+    """A \\uN value as one character: negative values wrap per the RTF spec; anything outside
+    Unicode, or a lone surrogate, becomes U+FFFD."""
+    if v < 0:
+        v += 65536
+    if v < 0 or v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
+        return "\ufffd"
+    return chr(v)
+
+
+def _to_body(rtf, max_out):
     if not rtf.lstrip().startswith(b"{\\rtf"):
         raise RtfError("not RTF")
     fromhtml = b"\\fromhtml1" in rtf[:2048]
@@ -114,13 +144,13 @@ def to_body(rtf, max_out=10 * 1024 * 1024):
     if m:
         cp = "cp%s" % m.group(1).decode()
         try:
-            b"".decode(cp)
+            codecs.lookup(cp)  # b"".decode() does not look the codec up, so check it directly
         except LookupError:
             cp = "cp1252"
     out, pend = [], bytearray()
     # state: skip (ignorable destination), sup (\htmlrtf suppression), tag (inside \*\htmltag), uc
     st = {"skip": False, "sup": False, "tag": False, "uc": 1, "star": False}
-    stack, skipn, size, warnings = [], 0, 0, []
+    stack, skipn, size, warnings, truncated = [], 0, 0, [], []
 
     def flush():
         if pend:
@@ -137,17 +167,27 @@ def to_body(rtf, max_out=10 * 1024 * 1024):
         return not st["skip"] and (not fromhtml or st["tag"] or not st["sup"])
 
     first_in_group = False
-    for mt in _TOKEN.finditer(rtf):
+    pos, n = 0, len(rtf)
+    while pos < n:
+        mt = _TOKEN.match(rtf, pos)
+        if not mt:
+            pos += 1
+            continue
+        pos = mt.end()
         word, num, hexb, sym, brace, nl, text = mt.groups()
+        if word == b"bin":
+            # \binN is followed by N raw bytes that are data, not text: skip them unread
+            pos += max(0, int(num or 0))
+            continue
         if size > max_out:
-            warnings.append("RTF body over the output cap; rest not read")
+            truncated.append("RTF body over the %d character output cap; rest not read" % max_out)
             break
         if brace == b"{":
             stack.append(dict(st))
             st["star"] = False
             first_in_group = True
             if len(stack) > 200:
-                warnings.append("RTF nesting over 200 levels; rest not read")
+                truncated.append("RTF nesting over 200 levels; rest not read")
                 break
             continue
         if brace == b"}":
@@ -201,8 +241,7 @@ def to_body(rtf, max_out=10 * 1024 * 1024):
                 continue
             if word == b"u" and num is not None:
                 if visible():
-                    v = int(num)
-                    emit(chr(v + 65536 if v < 0 else v))
+                    emit(_uchar(int(num)))
                 skipn = st["uc"]
                 continue
             if not visible():
@@ -221,7 +260,15 @@ def to_body(rtf, max_out=10 * 1024 * 1024):
                 emit('"')
             continue
         if text and visible():
+            room = max_out - size
+            if len(text) > room:
+                text = text[:max(0, room)]
+                truncated.append("RTF body over the %d character output cap; rest not read" % max_out)
+                pend.extend(text)
+                size += len(text)
+                break
             pend.extend(text)
             size += len(text)
     flush()
-    return {"kind": "html" if fromhtml else "text", "content": "".join(out), "warnings": warnings}
+    return {"kind": "html" if fromhtml else "text", "content": "".join(out), "warnings": warnings,
+            "truncated": truncated[:1]}

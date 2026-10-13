@@ -18,7 +18,7 @@ without ever sending mail on its own.
 - you need AQS (Outlook search box) or KQL (Graph `$search`) syntax.
 
 ## Install
-Planned, not yet published (v0.1.1 is under review):
+Planned, not yet published (v0.1.2 is under review):
 ```bash
 npx @skillsaas/cli add microsoft-outlook      # planned
 npx skills add skillsaas/microsoft-outlook    # planned
@@ -42,7 +42,7 @@ Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python 
 | `SECURITY.md` | Threat model and how to report a problem |
 
 ## Status and maintenance
-Version 0.1.1, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.2, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

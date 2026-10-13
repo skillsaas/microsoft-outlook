@@ -96,25 +96,35 @@ POST /me/sendMail                            # sends at once, no draft: avoid in
 So a mail with a file over 3 MB cannot go through `sendMail`: make a draft, attach with an
 upload session, show the draft, then `send` on approval.
 
-## Recipes (copy, replace the ids, keep the order)
+## Recipes (shapes checked against the Microsoft Learn examples on 2026-10-13; not run)
 ```http
 # 1. Page through a folder: follow @odata.nextLink exactly as returned until it is absent
 GET /me/mailFolders/inbox/messages?$select=id,subject,from,receivedDateTime&$top=100
 GET {@odata.nextLink}
 
-# 2. Large attachment on a draft (file over 3 MB)
-POST /me/messages
+# 2. Large attachment on a draft (file over 3 MB). Learn: attachment-createuploadsession,
+#    outlook-large-attachments.
+POST /me/messages                              # 201 Created, a draft; keep its id
+Content-Type: application/json
 { "subject": "Q3 report", "toRecipients": [{"emailAddress": {"address": "sara@contoso.example"}}] }
-POST /me/messages/{draft-id}/attachments/createUploadSession
-{ "AttachmentItem": { "attachmentType": "file", "name": "q3.pdf", "size": 9437184 } }
-PUT {uploadUrl}                                # no Authorization header: the URL carries it
-Content-Range: bytes 0-4194303/9437184
-...repeat with the next range from nextExpectedRanges...
-GET /me/messages/{draft-id}?$expand=attachments($select=name,size)   # read back
-POST /me/messages/{draft-id}/send             # only after the user approves this draft
 
-# 3. Batch of reads (up to 20; Graph runs at most 4 at a time against one mailbox)
+POST /me/messages/{draft-id}/attachments/createUploadSession   # 201 Created, uploadSession
+Content-Type: application/json
+{ "AttachmentItem": { "attachmentType": "file", "name": "q3.pdf", "size": 9437184 } }
+
+PUT {uploadUrl}                                # no Authorization header: the URL carries it
+Content-Type: application/octet-stream
+Content-Length: 4194304
+Content-Range: bytes 0-4194303/9437184
+                                               # 200 OK with nextExpectedRanges, e.g. ["4194304"]
+...repeat with the next range, in order, at most 4 MB each...
+                                               # last PUT: 201 Created, Location header = attachment URL
+GET /me/messages/{draft-id}/attachments?$select=name,size     # read back
+POST /me/messages/{draft-id}/send             # 202 Accepted; only after the user approves this draft
+
+# 3. Batch of reads (up to 20; Graph runs at most 4 at a time against one mailbox). Learn: json-batching.
 POST /$batch
+Content-Type: application/json
 { "requests": [
   { "id": "1", "method": "GET", "url": "/me/messages/{id1}?$select=subject" },
   { "id": "2", "method": "GET", "url": "/me/messages/{id2}?$select=subject" } ] }
@@ -123,7 +133,7 @@ Each batch item has its own status: check every one; a 200 for the batch is not 
 
 ## Throttling and errors
 - `429` and `503` carry `Retry-After`: wait that long, then retry; do not loop fast.
-- Never retry a write blindly. After a timeout on `send`, `sendMail`, an event create or a rule
+- SKILL.md safety rule 7 applies (no blind retries): after a timeout on `send`, `sendMail`, an event create or a rule
   create, look first (Sent Items, the calendar, the rule list) or the user may get duplicates.
 - `ErrorAccessDenied` usually means a missing scope or a mailbox the user cannot open: report it,
   do not escalate scopes on your own.

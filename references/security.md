@@ -68,6 +68,22 @@ Phishing button (Outlook's built-in reporting) rather than replying to the sende
 - `manifest.json` with SHA-256 for every attachment, so the user can look hashes up in their
   security tools without uploading the file.
 
+Third-party uploads: no message, attachment, header or hash goes to an outside service
+(scanner, sandbox, URL checker, AI or translation service) without the user's consent for that
+service and that content (SKILL.md safety rule 2).
+
+The `.quarantine` suffix only stops a double click from running a file; it is not a security
+boundary. Treat the output folder as untrusted: keep it out of preview panes, desktop search
+indexers and cloud-synced folders.
+
+The output folder may sit behind a symlinked parent (macOS `/tmp`, symlinked homes): the parent
+is resolved once with realpath and the new folder is created there, so files land at the real
+path shown in `outdir`. The new folder itself must not exist, so it cannot be a symlink.
+
+When a phishing judgment rests on comparing domains (`reply-to-other-domain`,
+`text-shows-other-host`), say the comparison is approximate (no Public Suffix List), as listed
+in `not_checked`.
+
 "Never open" means never render or run: parsing bytes with these scripts and saving them with
 a safe name is not opening. Previewing, converting, unzipping or double-clicking is.
 
