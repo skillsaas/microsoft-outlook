@@ -10,6 +10,7 @@
 - Hamza R8-A: a high-risk item left out by `--only-ext` counts in `skipped_risky`, status `risky-skipped`, exit 1. R8-B: a text attachment carrying a uuencoded block takes the declared name's risk on its own row.
 - Hamza: the .ics real-file checks and the near-time-limit note were already in 0.1.7 (smoke_test.py ics branch, troubleshooting.md and json-output.md Limits); the .ics check now also compares the event count with the components in the file.
 - Python 3.9: a header the stdlib cannot parse (`Date: Monday`) no longer makes the whole file an error.
+- Release: first public release on GitHub (skillsaas/microsoft-outlook) and npm (microsoft-outlook).
 - Tests: 57 plus 3 optional.
 
 ## 0.1.7 (2026-10-13)

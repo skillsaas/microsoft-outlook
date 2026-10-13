@@ -18,12 +18,12 @@ without ever sending mail on its own.
 - you need AQS (Outlook search box) or KQL (Graph `$search`) syntax.
 
 ## Install
-Planned, not yet published (v0.1.2 is under review):
 ```bash
-npx @skillsaas/cli add microsoft-outlook      # planned
-npx skills add skillsaas/microsoft-outlook    # planned
+npx skills add skillsaas/microsoft-outlook    # skills CLI, reads SKILL.md at the repo root
+npm install microsoft-outlook                 # files land in node_modules/microsoft-outlook/
+# Planned, not yet published: npx @skillsaas/cli add microsoft-outlook
 ```
-Today: copy this folder into your agent's skills folder (for example `.claude/skills/` or
+Or copy this folder into your agent's skills folder (for example `.claude/skills/` or
 `.agents/skills/`). No pip install: the scripts use the Python 3.9+ standard library only.
 
 Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python tests/smoke_test.py`.
@@ -50,7 +50,7 @@ Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python 
 | Synthetic fixtures | .msg (cross-read by olefile 0.47, extract-msg 0.56.1), .eml, winmail.dat, .ics |
 | TNEF | tnefparse 1.4.0 sample corpus, 19 files, results equal |
 | Shipped public samples | 7 MIT-licensed real files in `tests/samples/` (MSGReader, ruby-msg), checked in every default test run against expected subjects and attachment names |
-| CI | `.github/workflows/test.yml` (Linux, Windows, macOS; Python 3.9 and 3.13) exists but has not run: the repo is not pushed yet |
+| CI | `.github/workflows/test.yml` (Linux, Windows, macOS; Python 3.9 and 3.13) runs on every push from 0.1.8 (see the Actions tab) |
 | Public sample files (31 more, fetched) | 28 .msg + 10 .eml from MSGReader, msg-extractor and ruby-msg test sets: no traceback; .msg subjects and attachment names equal extract-msg; 21 real compressed RTF bodies byte-identical to compressed_rtf |
 | Not run | live Graph tenant, Office.js add-in, VBA, a real .pst, encrypted or IRM mail, known Outlook versions |
 
@@ -73,7 +73,7 @@ a file fails, open an issue with the script, the error line and the Outlook vers
 itself unless it holds nothing private.
 
 ## Status and maintenance
-Version 0.1.8, pre-release: not on npm yet. Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.8, published on npm and GitHub (pre-1.0). Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

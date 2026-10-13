@@ -19,8 +19,8 @@
     ]
   },
   "published": {
-    "npm": false,
-    "github": false
+    "npm": true,
+    "github": true
   },
   "verification": {
     "tested_on_box": [
