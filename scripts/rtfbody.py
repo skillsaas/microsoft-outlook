@@ -177,7 +177,10 @@ def _to_body(rtf, max_out):
         word, num, hexb, sym, brace, nl, text = mt.groups()
         if word == b"bin":
             # \binN is followed by N raw bytes that are data, not text: skip them unread
-            pos += max(0, int(num or 0))
+            skip = max(0, int(num or 0))
+            if pos + skip > n:
+                truncated.append("RTF \\bin data runs past the end of the stream (%d bytes declared, %d left)" % (skip, n - pos))
+            pos += skip
             continue
         if size > max_out:
             truncated.append("RTF body over the %d character output cap; rest not read" % max_out)
@@ -237,7 +240,7 @@ def _to_body(rtf, max_out):
                 st["sup"] = num != b"0"
                 continue
             if word == b"uc":
-                st["uc"] = int(num or 1)
+                st["uc"] = min(8, max(0, int(num if num is not None else 1)))
                 continue
             if word == b"u" and num is not None:
                 if visible():

@@ -4,7 +4,7 @@ description: "Use when reading or triaging Outlook mail files (.msg, .eml, winma
 license: MIT
 compatibility: "Python 3.9+ standard library only. Tested on Linux only; macOS and Windows expected but untested. Real Outlook-saved .msg files untested (synthetic fixtures). .pst is orientation only. Graph, Office.js and VBA parts are documented from Microsoft Learn and not run against a tenant."
 metadata:
-  version: "0.1.2"
+  version: "0.1.3"
   updated: "2026-10-13"
   last_verified: "2026-10-13"
   tested_with: "Python 3.13.5 on Linux x86_64; cross-checked .msg fixture with olefile 0.47 and extract-msg 0.56.1; TNEF parser compared with tnefparse 1.4.0 on its 19 sample files"
@@ -87,7 +87,7 @@ All take `--json`, `--version`, `--max-bytes`, `--timeout`; never fetch, send or
 | Script | Does | Main options |
 | :--- | :--- | :--- |
 | `inspect_mail.py FILE` | Headers, top auth result, body preview (RTF bodies decoded), links, HTML traps, attachments with risk and SHA-256, nested messages, `risks`, `not_checked`, `complete` | `--body N`, `--show-targets`, `--fail-on-risk high`, `--allow-incomplete`, `--max-attachments` |
-| `extract_attachments.py FILE OUT` | Saves into a new folder, safe names, 0600 files and manifest; high-risk skipped; refuses partial parses | `--dry-run`, `--only 1,3/1`, `--skip-inline`, `--include-risky`, `--allow-incomplete`, `--max-file`, `--max-total`, `--max-attachments` |
+| `extract_attachments.py FILE OUT` | Saves into a new folder, safe names, 0600 files and manifest; high-risk skipped; containers' contents saved, not the container; refuses partial parses | `--dry-run`, `--only 1,3/1`, `--only-ext .pdf,.docx`, `--skip-inline`, `--include-risky`, `--allow-incomplete`, `--max-file`, `--max-total`, `--max-attachments` |
 | `inspect_ics.py FILE` | METHOD, events, organizer, attendees, RRULE as written, links, alarms; UTC, IANA and Windows zones converted; DST gaps flagged | `--tz ZONE`, `--max-events`, `--fail-on-risk` |
 Helpers: `mailsafe.py`, `mailparse.py`, `msgcfb.py` (.msg), `tnef.py` (winmail.dat), `rtfbody.py`
 (compressed RTF), `windows_zones.json` (CLDR, Unicode License v3: `LICENSE-CLDR.txt`).

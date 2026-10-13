@@ -108,10 +108,7 @@ def att_entries(m, prefix=""):
     for i, a in enumerate(m["attachments"], 1):
         idx = "%s%d" % (prefix, i)
         risk, reasons = mailsafe.attachment_risk(a["name"], a["content_type"])
-        if a["kind"] in ("embedded-message", "tnef", "msg"):
-            reasons.append("nested-message")
-        if a["kind"] == "ole-object":
-            risk, reasons = "high", reasons + ["ole-object"]
+        risk, reasons = mailsafe.kind_risk(a["kind"], risk, reasons)
         if a["kind"] == "reference":
             reasons.append("link-not-stored")
         e = {"index": idx, "name": mailsafe.clean_text(a["name"], 300), "content_type": a["content_type"],

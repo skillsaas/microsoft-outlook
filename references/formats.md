@@ -17,6 +17,21 @@ Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, rea
 | `.pst`, `.ost` | **no: orientation only** | no | nothing; readpst was run only on a non-PST file | everything; use classic Outlook or readpst |
 | `.oft` | as `.msg` | as `.msg` | not tested | |
 
+## Known-risky variants (real-world limits)
+Patterns that real Outlook files contain and how far the scripts go with them. "Synthetic" means a
+spec-built fixture covers it; nothing here was tried on a real Outlook-saved file.
+
+| Variant | What the scripts do | Covered by |
+| :--- | :--- | :--- |
+| winmail.dat inside a .msg or .eml | parsed as nested TNEF, contents listed and extracted | synthetic, tnefparse corpus |
+| .msg attached inside .eml, renamed (`invoice.bin`) | found by bytes, container risk, contents extracted | synthetic |
+| meeting forward (.msg with an invite) | message read; the invite is an attachment for `inspect_ics.py` | synthetic .ics only |
+| RTF-only body (no plain text or HTML) | decoded; links taken from `\fromhtml1` HTML | spec-built streams |
+| S/MIME signed (`multipart/signed`) | parts read; signature **not** verified | stdlib MIME parser |
+| S/MIME or IRM encrypted (`smime.p7m`, `.rpmsg`) | listed as an attachment; content unreadable, say so | not tested |
+| named MAPI properties, Unicode vs ANSI string props | common string props read; named props ignored | synthetic |
+| RRULE with exceptions across a DST change | RRULE printed as written, not expanded; DST gaps flagged on stated times | synthetic |
+
 ## Which file is which
 Detect by content, not extension; `inspect_mail.py` does this.
 | File | First bytes | What it is | Spec |

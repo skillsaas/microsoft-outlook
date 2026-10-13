@@ -3,7 +3,7 @@
 Never opens, previews or runs a saved file. Standard library only.
 
 Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include-risky]
-                                     [--skip-inline] [--only 1,2/1] [--max-file N] [--max-total N]
+                                     [--skip-inline] [--only 1,2/1] [--only-ext .pdf,.docx] [--max-file N] [--max-total N]
                                      [--max-attachments N] [--timeout S] [--allow-incomplete]
 
 - OUTDIR must not exist. Files are written into a private temp folder beside it (mode 0700, files
@@ -13,6 +13,10 @@ Usage: python extract_attachments.py FILE OUTDIR [--json] [--dry-run] [--include
 - High-risk types (Outlook's blocked list, double extensions, bidi tricks, OLE objects) are
   skipped. With --include-risky they are saved with ".quarantine" appended so a double click
   does not run them.
+- --only-ext .pdf,.docx is an allowlist: other extensions are skipped ("extension not in --only-ext").
+  It never overrides the high-risk skip.
+- An attached message or winmail.dat is a container (risk at least medium) whether it is found by
+  name or by its bytes; the container itself is not saved, its attachments are (like TNEF).
 - Attachments of nested messages (attached .msg or .eml, winmail.dat) are saved too, numbered
   by path ("2/1" is attachment 1 of attachment 2).
 - manifest.json (mode 0600) lists every attachment: index, original and saved name, size,
@@ -49,10 +53,12 @@ def walk(m, prefix=""):
 def plan(m, a):
     used, items, total = set(), [], 0
     only = set(a.only.split(",")) if a.only else None
+    only_ext = None
+    if a.only_ext:
+        only_ext = {x.strip().lower().lstrip(".") for x in a.only_ext.split(",") if x.strip()}
     for idx, att in walk(m):
         risk, reasons = mailsafe.attachment_risk(att["name"], att["content_type"])
-        if att["kind"] == "ole-object":
-            risk, reasons = "high", reasons + ["ole-object"]
+        risk, reasons = mailsafe.kind_risk(att["kind"], risk, reasons)
         it = {"index": idx, "name": mailsafe.clean_text(att["name"], 300), "kind": att["kind"],
               "size": len(att["data"] or b""), "sha256": mailparse.sha256(att["data"]) if att["data"] else None,
               "risk": risk, "reasons": reasons, "saved_as": None, "skipped": None}
@@ -60,8 +66,15 @@ def plan(m, a):
         if only is not None and idx not in only:
             it["skipped"] = "not selected (--only)"
             continue
+        if only_ext is not None and att["kind"] not in mailsafe.CONTAINER_KINDS and \
+                mailsafe.ext_of(att["name"] or "") not in only_ext:
+            it["skipped"] = "extension not in --only-ext"
+            continue
         if att["kind"] == "tnef" and att.get("nested"):
             it["skipped"] = "TNEF container: its contents are saved instead"
+            continue
+        if att["kind"] == "msg" and att.get("nested"):
+            it["skipped"] = "Outlook message container (found by content): its attachments are saved instead"
             continue
         if att["kind"] == "embedded-message" and not att["data"]:
             it["skipped"] = "embedded .msg storage: its attachments are saved instead"
@@ -120,6 +133,7 @@ def main(argv=None):
     ap.add_argument("--include-risky", action="store_true")
     ap.add_argument("--skip-inline", action="store_true")
     ap.add_argument("--only", help="comma-separated indexes, as listed by inspect_mail.py")
+    ap.add_argument("--only-ext", help="allowlist: save only these extensions, e.g. .pdf,.docx (high risk is still skipped)")
     ap.add_argument("--max-file", type=int, default=100 * 1024 * 1024)
     ap.add_argument("--max-total", type=int, default=500 * 1024 * 1024)
     ap.add_argument("--max-bytes", type=int, default=150 * 1024 * 1024, help="input file cap")

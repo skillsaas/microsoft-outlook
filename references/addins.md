@@ -5,6 +5,10 @@ Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
 API names and requirement sets below were checked against `@types/office-js` 1.0.611
 (2026-10-13). No add-in was built or run here.
 
+> **Documented, not run.** Every request and code sample here is a recipe from Microsoft Learn
+> (shapes checked, behaviour not observed). Read back the result of every write; do not treat a
+> recipe as tested.
+
 ## Which client runs what
 | | New Outlook for Windows, Outlook on the web | Classic Outlook for Windows | Outlook for Mac |
 | :--- | :--- | :--- | :--- |

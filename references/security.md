@@ -11,13 +11,23 @@ Run `inspect_mail.py FILE --json`, then read:
    one address and the real one differs. Look-alike domains (`paypa1`, `rn` for `m`, extra
    words) are not detected automatically; read the domain yourself.
 2. **Reply-To.** `reply-to-other-domain` means answers go somewhere else: a common invoice and
-   payroll fraud pattern.
+   payroll fraud pattern. The comparison is approximate (no Public Suffix List). It will **not**
+   flag: a look-alike in the same shape (`paypa1.com` vs `paypal.com` is flagged only because the
+   domains differ, not as a look-alike); a reply-to on a shared hosting suffix outside the
+   built-in list (`evil.github.io` vs `docs.github.io` look like the same site `github.io`);
+   a compromised or free-mail account on the sender's real domain. It may **wrongly** flag a
+   company's own second domain (`contoso.com` replying via `contoso-mail.com`).
 3. **Authentication-Results.** Only the topmost header, added by the user's own receiving server,
    counts. Lower ones, or any in a .msg/.eml that went through other hands, may be written by the
    sender. `dmarc-fail` and `compauth-fail` (Microsoft composite authentication) are strong
    signals; `pass` is not proof of good intent (attackers own domains too).
    No header at all (`no-authentication-results`) is common in saved .msg files: say the sender
    could not be verified from the file.
+   Operational test: the topmost header counts only if its `authserv-id` (first field) names the
+   user's own mail system (for Microsoft 365, a `*.prod.outlook.com` or `*.protection.outlook.com`
+   host or the tenant's own domain) and it sits above the first `Received:` line added by that
+   system. If you cannot tell, or the file was forwarded as an attachment, report authentication as
+   "unknown from this file", not pass or fail.
 4. **Links.** Each has `scheme`, `host` and `reasons`: `text-shows-other-host` (the text shows
    one site, the link goes to another), `ip-host`, `punycode-host`, `non-ascii-host`,
    `userinfo-in-url` (`https://microsoft.com@evil.example`), `risky-scheme` (`javascript:`,
@@ -58,6 +68,12 @@ Phishing button (Outlook's built-in reporting) rather than replying to the sende
   `path-in-name`, `windows-device-name`. Medium. These are the
   skill's heuristics, not Microsoft's list.
 - `ole-object` (embedded OLE in .msg or TNEF): high; not decoded.
+- `content-type-mismatch`: the declared type looks harmless (`text/plain`, `image/*`, `audio/*`,
+  `video/*`, `application/pdf`) but the extension is blocked, browser-active or macro-capable.
+  Added beside the extension's own reason (so it is at least medium).
+- Containers by content: an attachment whose bytes are an Outlook message (Compound File with
+  MS-OXMSG properties) or TNEF is a `container` (at least medium) whatever its name, so
+  `invoice.bin` or `photo.jpg` holding a .msg is not reported low.
 
 `extract_attachments.py`:
 - writes into a new folder only, through a private temp folder renamed into place at the end;
@@ -65,6 +81,12 @@ Phishing button (Outlook's built-in reporting) rather than replying to the sende
   removed, Windows device names prefixed with `_`, case-insensitive duplicates numbered;
 - files mode 0600 (no execute bit), created with `O_EXCL` and `O_NOFOLLOW`;
 - high-risk files skipped (exit 1), or with `--include-risky` saved with `.quarantine` appended;
+- containers (TNEF, an attached .msg found by name or bytes) are not saved themselves; their
+  attachments are, each with its own risk;
+- `--only-ext .pdf,.docx` is an allowlist (other extensions skipped); it never overrides the
+  high-risk skip;
+- an existing output folder is refused (exit 3, nothing touched); an interrupted or timed-out run
+  removes its hidden `.extract-*` temp folder and reports that under `cleanup`;
 - `manifest.json` with SHA-256 for every attachment, so the user can look hashes up in their
   security tools without uploading the file.
 

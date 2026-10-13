@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 (2026-10-13)
+
+- An attached Outlook message or TNEF found by its bytes is a container (risk at least medium) whatever its filename or MIME type; extract does not save the container itself, only its attachments, matching the TNEF policy (Tariq N8). Shared `kind_risk` in mailsafe.py used by inspect and extract.
+- RTF: `\bin` data running past the end of the stream is reported as truncated (incomplete); `\uc` clamped to 0..8 (Tariq N9, N10).
+- extract_attachments.py `--only-ext .pdf,.docx` extension allowlist; never overrides the high-risk skip (gpt-oss).
+- New risk reason `content-type-mismatch`: a harmless declared type with an active extension (haiku).
+- security.md: operational test for which Authentication-Results to trust, and "unknown from this file" (luna); what the reply-to check will and will not catch (haiku); extraction behaviour for existing folders and interrupted runs (luna).
+- formats.md: known-risky variants table (haiku). graph.md and addins.md: "documented, not run" banner (mini).
+- Tests: 45 plus 4 optional (cross-check, TNEF corpus, real files, npm packed-artifact check).
+
 ## 0.1.2 (2026-10-13)
 
 - RTF hardening: `\u` values clamped to U+FFFD, `\ansicpg` checked with codecs.lookup (falls back to cp1252), `\binN` data skipped, MELA CRC must be 0, any decode error or truncation marks the parse incomplete with a report instead of exit 2 with nothing.

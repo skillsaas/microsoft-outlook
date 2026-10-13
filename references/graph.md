@@ -1,6 +1,10 @@
 # Microsoft Graph for mail
 
-Last verified against Microsoft Learn: 2026-10-13. Not run against a tenant. Base URL
+Last verified against Microsoft Learn: 2026-10-13. Not run against a tenant.
+
+> **Documented, not run.** Every request and code sample here is a recipe from Microsoft Learn
+> (shapes checked, behaviour not observed). Read back the result of every write; do not treat a
+> recipe as tested. Base URL
 `https://graph.microsoft.com/v1.0`. `/me` is the signed-in user (delegated); `/users/{id|upn}`
 is another mailbox (needs `.Shared` delegated scopes or application permissions).
 

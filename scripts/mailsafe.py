@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -78,6 +78,23 @@ def ext_of(name):
     return base.rsplit(".", 1)[1] if "." in base else ""
 
 
+CONTAINER_KINDS = ("embedded-message", "tnef", "msg")
+_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+def kind_risk(kind, risk, reasons):
+    """Raise risk by what the bytes are, not the name: a nested message or TNEF found by content is a container
+    (at least medium) whatever its filename; an OLE object is high."""
+    reasons = list(reasons)
+    if kind in CONTAINER_KINDS:
+        reasons += ["container", "nested-message"]
+        if _ORDER[risk] < 1:
+            risk = "medium"
+    if kind == "ole-object":
+        risk, reasons = "high", reasons + ["ole-object"]
+    return risk, list(dict.fromkeys(reasons))
+
+
 def attachment_risk(name, content_type=None, size=None):
     """Return (risk, reasons). risk is low, medium or high. Name tricks count, not only the extension."""
     reasons = []
@@ -113,6 +130,9 @@ def attachment_risk(name, content_type=None, size=None):
         reasons.append("executable-content-type")
     if ct in ("application/ms-tnef", "message/rfc822", "application/vnd.ms-outlook"):
         reasons.append("container")
+    if (ct.startswith(("text/plain", "image/", "audio/", "video/")) or ct == "application/pdf") and \
+            (e in OUTLOOK_BLOCKED or e in ACTIVE_WEB or e in MACRO_OFFICE):
+        reasons.append("content-type-mismatch")  # declared harmless type, active extension: a disguise
     # opens-in-browser is high since 0.1.1: HTML and SVG attachments are a common credential
     # phishing carrier and can run script when opened from disk.
     high = {"outlook-blocked-type", "bidi-override-in-name", "double-extension",

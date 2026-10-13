@@ -21,7 +21,7 @@ until `schema` changes.
 | `body_chars`, `has_html` | int, bool | |
 | `html_findings` | object | counts: scripts, forms, form_targets, remote_images, tracking_pixels, iframes, meta_refresh, base_tag, hidden_blocks, event_handlers |
 | `links` | list | source (`html` or `text`), text, scheme, host, risk, reasons; `target` only with `--show-targets` |
-| `attachments` | list | index (`2/1` = attachment 1 of attachment 2), name, content_type, kind (`file`, `embedded-message`, `tnef`, `calendar`, `ole-object`, `reference`), size, inline, sha256, risk, reasons, nested_subject |
+| `attachments` | list | index (`2/1` = attachment 1 of attachment 2), name, content_type, kind (`file`, `embedded-message`, `msg` (an attached .msg found by its bytes), `tnef`, `calendar`, `ole-object`, `reference`), size, inline, sha256, risk, reasons, nested_subject |
 | `warnings` | list of strings | oddities that did not stop reading (MIME defects, checksum mismatch) |
 | `risks` | list | `{risk, kind, detail}`; `parse-incomplete` is first when present |
 | `overall_risk` | string | `low`, `medium` or `high` |

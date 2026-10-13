@@ -1,6 +1,6 @@
 {
   "name": "microsoft-outlook",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts only: never sends mail itself.",
   "entry": "SKILL.md",
   "skill_md_url": "https://raw.githubusercontent.com/skillsaas/microsoft-outlook/main/SKILL.md",

@@ -641,6 +641,49 @@ def _():
         assert c == 2 and r and r["status"] == "error" and r["error"].startswith("usage"), (flag, txt[:200])
 
 
+@test("v0.1.3: a .msg or TNEF found by bytes is a container (medium+) whatever its name; extract skips the container")
+def _():
+    import base64
+    msg = open(FX["sample.msg"], "rb").read()
+    dat = open(FX["winmail.dat"], "rb").read()
+    def part(name, ctype, data):
+        return (b"--B\r\nContent-Type: " + ctype + b"\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + name + b"\r\n\r\n" + base64.encodebytes(data) + b"\r\n")
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + part(b"invoice.bin", b"application/octet-stream", msg) + part(b"photo.jpg", b"image/jpeg", dat) + b"--B--\r\n")
+    f = write("disguised.eml", eml)
+    c, r, _ = run("inspect_mail.py", f, "--json")
+    top = {a["index"]: a for a in r["attachments"]}
+    for i in ("1", "2"):
+        assert top[i]["risk"] in ("medium", "high") and "container" in top[i]["reasons"], top[i]
+    out = os.path.join(TMP, "disg-out")
+    c, r, _ = run("extract_attachments.py", f, out, "--json")
+    items = {i["index"]: i for i in r["attachments"]}
+    assert items["1"]["saved_as"] is None and "container" in items["1"]["skipped"], items["1"]
+    assert items["2"]["saved_as"] is None and "container" in items["2"]["skipped"], items["2"]
+    assert "invoice.bin" not in os.listdir(out) and "photo.jpg" not in os.listdir(out), os.listdir(out)
+    assert any(k.startswith("1/") and v["saved_as"] for k, v in items.items()), items
+    # high-risk nested files stay skipped
+    assert all(v["saved_as"] is None for v in items.values() if v["risk"] == "high")
+
+
+@test("v0.1.3: --only-ext allowlist; content-type-mismatch; \\bin past EOF reported; negative \\uc clamped")
+def _():
+    import mailsafe, rtfbody
+    out = os.path.join(TMP, "onlyext-out")
+    c, r, _ = run("extract_attachments.py", FX["sample.msg"], out, "--json", "--only-ext", ".txt")
+    saved = [i for i in r["attachments"] if i["saved_as"]]
+    assert saved and all(i["name"].lower().endswith(".txt") for i in saved), saved
+    assert any(i["skipped"] == "extension not in --only-ext" for i in r["attachments"]), r["attachments"]
+    risk, reasons = mailsafe.attachment_risk("report.vbs", "text/plain")
+    assert risk == "high" and "content-type-mismatch" in reasons, reasons
+    assert "content-type-mismatch" not in mailsafe.attachment_risk("notes.txt", "text/plain")[1]
+    b = rtfbody.to_body(b"{\\rtf1 ok \\bin100 xy}")
+    assert b["truncated"] and "past the end" in b["truncated"][0], b
+    b = rtfbody.to_body(b"{\\rtf1 \\uc-1 A\\u66 ?AF}")
+    assert "B" in b["content"] and "\ufffd" not in b["content"], b
+
+
 @test("real files: every file in REAL_FIXTURES_DIR gives JSON without a traceback (optional)")
 def _():
     d = os.environ.get("REAL_FIXTURES_DIR")
@@ -775,6 +818,21 @@ def main():
     SRV.shutdown()
     shutil.rmtree(TMP, ignore_errors=True)
     return 1 if f else 0
+
+@test("release: the packed npm artifact holds SKILL.md, every referenced file and script (optional: needs npm)")
+def _():
+    import shutil as _sh
+    if not _sh.which("npm"):
+        raise Skip("npm not on PATH")
+    out = subprocess.run(["npm", "pack", "--dry-run", "--json"], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    files = {f["path"] for f in json.loads(out.stdout)[0]["files"]}
+    sk = open(os.path.join(ROOT, "SKILL.md"), encoding="utf-8").read()
+    need = {"SKILL.md", "skill.json", "LICENSE", "scripts/windows_zones.json", "scripts/LICENSE-CLDR.txt"}
+    need |= set(re.findall(r"references/[\w-]+\.md", sk)) | set("scripts/" + x for x in re.findall(r"([\w]+\.py)", sk))
+    need = {n for n in need if os.path.exists(os.path.join(ROOT, n))} | {"SKILL.md"}
+    assert need <= files, sorted(need - files)
+    assert not [f for f in files if "__pycache__" in f or f.endswith(".pyc")], "bytecode packed"
+
 
 
 if __name__ == "__main__":
