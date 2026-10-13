@@ -1,5 +1,7 @@
 # microsoft-outlook
 
+**TL;DR:** `microsoft-outlook` is a free, MIT-licensed agent skill that teaches AI agents (Claude Code, Cursor, Codex, Gemini CLI and other agents that read SKILL.md skills) to read Outlook mail files offline (`.msg`, `.eml`, `winmail.dat`, `.ics`), gather phishing evidence, save attachments without running them, and use Microsoft Graph or an Office.js add-in without sending mail on their own. Install: `npx skills add skillsaas/microsoft-outlook` or `npm install microsoft-outlook`.
+
 An agent skill (`SKILL.md`) that teaches AI agents to work with Microsoft Outlook mail safely:
 read `.msg`, `.eml`, `winmail.dat` and `.ics` files offline, spot phishing, save attachments
 without running them, and drive the live mailbox through Microsoft Graph or an Office.js add-in
@@ -28,6 +30,32 @@ Or copy this folder into your agent's skills folder (for example `.claude/skills
 Windows, `inspect_ics.py --tz` needs time zone data: `python -m pip install tzdata`.
 
 Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python tests/smoke_test.py`.
+
+## What it does
+- `inspect_mail.py`: read-only report for `.msg`, `.eml` and `winmail.dat`: headers, SPF/DKIM/DMARC results, links, HTML tricks, attachments and risks.
+- `extract_attachments.py`: saves attachments, including nested ones, into a new folder with safe names; risky types are skipped or quarantined.
+- `inspect_ics.py`: meeting invites with methods, times and Windows time zones, recurrence, links and alarms.
+- References for Microsoft Graph mail and calendar with least-privilege scopes, rules, signatures, AQS and KQL search, and Outlook add-ins. Drafts by default; sends only a draft the user approved.
+- Python 3.9+ standard library only; smoke tests run in CI on Linux, macOS and Windows.
+
+## FAQ
+**What is the microsoft-outlook skill?**
+An Agent Skills package (a `SKILL.md` plus references and Python scripts) that tells an AI agent how to handle Outlook mail files and automation safely. It is unofficial and not affiliated with Microsoft.
+
+**How do I open a .msg file without Outlook?**
+`python scripts/inspect_mail.py FILE.msg --json` shows headers, body, links and attachments; `extract_attachments.py` saves the attachments.
+
+**What is winmail.dat and how do I get the attachments out?**
+It is a TNEF file Outlook sends to some mail clients. `extract_attachments.py winmail.dat NEW_DIR` reads it and saves the files inside.
+
+**Can it tell me if an email is phishing?**
+It reports evidence (authentication results, mismatched link text, risky attachments, punycode hosts) for the agent to explain. It is triage, not a verdict or a malware scan.
+
+**Will the agent send email on its own?**
+No. The skill drafts by default and sends only a draft the user approved after it was read back.
+
+**Does it work on Windows?**
+Yes; for `inspect_ics.py --tz` on Windows run `python -m pip install tzdata`.
 
 ## Contents
 | Path | What |
@@ -74,7 +102,7 @@ a file fails, open an issue with the script, the error line and the Outlook vers
 itself unless it holds nothing private.
 
 ## Status and maintenance
-Version 0.1.9, published on npm and GitHub (pre-1.0). Smoke tests pass in CI on Linux, macOS and Windows (Python 3.9 and 3.13); Graph, Office.js and VBA parts
+Version 0.1.10, published on npm and GitHub (pre-1.0). Smoke tests pass in CI on Linux, macOS and Windows (Python 3.9 and 3.13); Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

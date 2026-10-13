@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,

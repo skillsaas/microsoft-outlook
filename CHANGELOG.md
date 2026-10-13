@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 (2026-10-13)
+Discovery only; no script or skill behaviour changed.
+- npm description rewritten as a one-sentence answer (what, which app, which agents), under 250 characters; more npm keywords and GitHub topics.
+- README opens with a TL;DR and adds "What it does" and an FAQ.
+
 ## 0.1.9 (2026-10-13)
 
 - Windows: Python on Windows has no time zone database. `inspect_ics.py --tz` now checks for one first and fails clearly (exit 2, names `pip install tzdata`, says to run without `--tz` to list times as written); `scripts/requirements.txt` lists `tzdata` for Windows and CI installs it. Test added (hides the database with PYTHONTZPATH).
