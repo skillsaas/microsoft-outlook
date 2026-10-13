@@ -19,7 +19,7 @@ import threading
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 EXIT_OK, EXIT_RISK, EXIT_UNSUPPORTED, EXIT_REFUSED = 0, 1, 2, 3
 
 # Outlook's blocked attachment list ("Blocked attachments in Outlook", support.microsoft.com,
@@ -82,7 +82,36 @@ CONTAINER_KINDS = ("embedded-message", "tnef", "msg")
 _ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
-def kind_risk(kind, risk, reasons):
+_EXEC_MAGIC = ((b"MZ", "windows-executable"), (b"\x7fELF", "elf-executable"), (b"\xcf\xfa\xed\xfe", "macho-executable"),
+               (b"\xce\xfa\xed\xfe", "macho-executable"), (b"\xca\xfe\xba\xbe", "macho-executable"), (b"#!", "script"))
+_TYPE_MAGIC = {"pdf": (b"%PDF",), "png": (b"\x89PNG",), "jpg": (b"\xff\xd8\xff",), "jpeg": (b"\xff\xd8\xff",),
+               "gif": (b"GIF8",), "zip": (b"PK",), "docx": (b"PK",), "xlsx": (b"PK",), "pptx": (b"PK",),
+               "doc": (b"\xd0\xcf\x11\xe0",), "xls": (b"\xd0\xcf\x11\xe0",), "ppt": (b"\xd0\xcf\x11\xe0",)}
+_ACTIVE_TEXT = re.compile(rb"(?is)^\s*(<\?xml[^>]*>\s*)?(<!doctype html|<html|<script|<svg|<hta:)")
+_WSH = re.compile(rb"(?i)^\s*(on error resume next|set \w+ = createobject|wscript\.|\$\w+\s*=|powershell|@echo off)")
+
+
+def content_risk(data, name):
+    """Reasons from the bytes, not the name: executable or script content, or bytes that do not
+    match the claimed type (fake.pdf holding MZ). Run on what extraction would save."""
+    if not data:
+        return []
+    head, e, out = data[:4096], ext_of(name or ""), []
+    for sig, what in _EXEC_MAGIC:
+        if head.startswith(sig):
+            out.append("executable-content:" + what)
+            break
+    if _ACTIVE_TEXT.match(head) and e not in ("html", "htm", "svg", "xml"):
+        out.append("executable-content:html-or-script")
+    elif _WSH.match(head) and e not in ("vbs", "ps1", "bat", "cmd", "js"):
+        out.append("executable-content:script")
+    want = _TYPE_MAGIC.get(e)
+    if want and not any(head.lstrip(b"\r\n\t ")[:8].startswith(w) or (e == "pdf" and w in head[:1024]) for w in want):
+        out.append("content-does-not-match-extension")
+    return out
+
+
+def kind_risk(kind, risk, reasons, data=None, name=None):
     """Raise risk by what the bytes are, not the name: a nested message or TNEF found by content is a container
     (at least medium) whatever its filename; an OLE object is high."""
     reasons = list(reasons)
@@ -92,6 +121,13 @@ def kind_risk(kind, risk, reasons):
             risk = "medium"
     if kind == "ole-object":
         risk, reasons = "high", reasons + ["ole-object"]
+    if kind == "file" and data:
+        cr = content_risk(data, name)
+        reasons += cr
+        if any(x.startswith("executable-content") for x in cr):
+            risk = "high"
+        elif cr and _ORDER[risk] < 1:
+            risk = "medium"
     return risk, list(dict.fromkeys(reasons))
 
 
@@ -168,6 +204,24 @@ def safe_filename(name, fallback="attachment"):
 # ---- links ----
 _URL_RE = re.compile(r"""(?i)\b((?:https?|ftp|file|javascript|data|vbscript|ms-[a-z-]+|search-ms|mailto|tel|smb):[^\s<>"'`]+|www\.[^\s<>"'`]+)""")
 _HOSTLIKE = re.compile(r"(?i)^(?:https?://)?((?:[a-z0-9\u00a1-\uffff-]+\.)+[a-z\u00a1-\uffff]{2,63})(?:[/:?#]|$)")
+# a host-like token anywhere in link text ("Please visit https://paypal.com now")
+_HOSTTOKEN = re.compile(r"(?i)(?<![\w@.\-])(https?://)?((?:[a-z0-9\u00a1-\uffff-]+\.)+[a-z\u00a1-\uffff]{2,63})(?=[/:?#\s,;.)!\"'>\]]|$)")
+_FILEISH = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "zip", "rar", "7z", "png", "jpg",
+            "jpeg", "gif", "htm", "html", "js", "exe", "msg", "eml", "ics", "dat", "xml", "json", "php", "asp",
+            "aspx", "py", "sh", "bat", "cmd", "ps1", "vbs", "iso", "img", "svg", "rtf", "odt", "md"}
+
+
+def shown_hosts(text):
+    """Every host the link text shows: a token with http(s):// always counts; a bare name counts
+    unless it looks like a file name (invoice.pdf). Email addresses are ignored."""
+    out = []
+    for m in _HOSTTOKEN.finditer(text):
+        h = m.group(2).lower()
+        if m.group(1) or h.rsplit(".", 1)[-1] not in _FILEISH:
+            out.append(h)
+    return out[:20]
+
+
 RISKY_SCHEMES = {"javascript", "vbscript", "data", "file", "smb", "search-ms", "ms-msdt",
                  "ms-officecmd", "ms-word", "ms-excel", "ms-powerpoint", "ms-search"}
 
@@ -220,10 +274,10 @@ def analyze_url(target, text=None):
     if text:
         tx = clean_text(text, 0).strip()
         m = _HOSTLIKE.match(tx)
-        if m and "@" not in tx and host:
-            shown = m.group(1).lower()
-            if registrable(shown) != registrable(host):
-                reasons.append("text-shows-other-host")
+        shown = [m.group(1).lower()] if m and "@" not in tx else []
+        shown += shown_hosts(tx)  # also a host anywhere in the text, not only at the start
+        if host and any(registrable(s) != registrable(host) for s in shown):
+            reasons.append("text-shows-other-host")
     high = {"risky-scheme", "userinfo-in-url", "text-shows-other-host", "invisible-chars-in-target",
             "unparseable", "encoded-chars-in-host"}
     risk = "high" if high & set(reasons) else ("medium" if reasons and reasons != ["not-https"] else "low")
@@ -391,7 +445,7 @@ def finish(code):
 # What these scripts never check, listed in every JSON report so a reader does not assume more.
 NOT_CHECKED_MAIL = [
     "links are analyzed as text only; no URL is fetched, so final destinations and page content are unknown",
-    "attachment contents are not scanned for malware; risk comes from names and types only",
+    "attachment contents are not scanned for malware; risk comes from names, declared types and a first-bytes type check (not a scan)",
     "DKIM and SPF are not re-verified; Authentication-Results are read as written",
     "encrypted (S/MIME, OME) content is not decrypted",
     "OLE objects and reference (cloud) attachments are not decoded or followed",

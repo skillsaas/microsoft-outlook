@@ -32,6 +32,18 @@ Fields that matter:
   daylight saving (tested: 14:00 Europe/London on 2026-10-16 is 18:00 Asia/Karachi).
 - Always report times in the user's zone with the zone named, and say when a meeting recurs.
 
+## What inspect_ics.py does with hard cases
+| Case | Output | Agent should |
+| :--- | :--- | :--- |
+| Ambiguous local time (DST overlap) | `local_time: ambiguous`, medium risk; converted with the earlier instant (fold 0) | say it happens twice; confirm with the organizer |
+| Nonexistent local time (DST gap) | `local_time: nonexistent`, medium risk; converted as written | say the time does not exist there; confirm |
+| Floating time (no Z, no TZID) | `value` kept, not converted, note "floating time" | never assume UTC or the machine's zone |
+| Unknown TZID | `value` and `tzid` kept, `converted: null`, note | report the stated time and zone as written |
+| Invalid date (`DTSTART:2026`, month 00) | `value` kept, note "not a valid ..." | say the start time could not be read |
+| RRULE | `rrule` as written plus an info risk "RRULE not expanded" | do not list occurrences; say "repeats" with the rule |
+| EXDATE, RECURRENCE-ID | counts and the RECURRENCE-ID value only; exceptions are not applied | say some occurrences are changed or cancelled; check the calendar |
+| SEQUENCE | reported as written | a higher number is usually newer, but it does not prove which invite is authoritative |
+
 ## Calendar threats
 - Invites can arrive without the user accepting anything, and land on the calendar. Treat links
   in the description and location as untrusted (`link` risks).

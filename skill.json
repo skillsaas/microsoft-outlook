@@ -1,7 +1,7 @@
 {
   "name": "microsoft-outlook",
-  "version": "0.1.3",
-  "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts only: never sends mail itself.",
+  "version": "0.1.4",
+  "description": "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking for phishing, extracting attachments safely, reading invites and time zones, or automating Outlook with Microsoft Graph, Office.js, rules, signatures and AQS/KQL search. Drafts by default: sends only a draft the user approved, after reading it back.",
   "entry": "SKILL.md",
   "skill_md_url": "https://raw.githubusercontent.com/skillsaas/microsoft-outlook/main/SKILL.md",
   "repository": "https://github.com/skillsaas/microsoft-outlook",
@@ -43,11 +43,12 @@
     "tnefparse": "1.4.0",
     "libpst": "0.6.76",
     "os": "Linux x86_64",
-    "date": "2026-10-13"
+    "date": "2026-10-13",
+    "real_sample_files": "28 public sample .msg and 10 .eml files from the test sets of MSGReader (MIT), msg-extractor (GPL-3.0) and ruby-msg (fetched for testing, not shipped): all parsed with no traceback; .msg subjects and top-level attachment names equal extract-msg 0.56.1; 21 of 21 non-empty compressed RTF bodies byte-identical to compressed_rtf 1.0.7"
   },
   "not_tested": [
     "Outlook (any version)",
-    "real Outlook-saved .msg files",
+    "a controlled corpus of known Outlook versions (only public sample files, versions unknown)",
     "a real .pst",
     "Microsoft Graph tenant",
     "Office.js runtime",

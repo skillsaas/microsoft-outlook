@@ -63,3 +63,28 @@ once the folder is renamed into place, is ignored and the normal result is print
 | exit 1 `risky-skipped` (extract) | name the skipped files; `--include-risky` only on approval |
 | exit 2 | ask for the original file |
 | exit 3 | name the limit; raise it only with the user's OK |
+
+## Example results for the common failure states (real output, trimmed)
+Partial parse (`inspect_mail.py`, an attached .msg that cannot be read), exit 1:
+```json
+{"ok": true, "status": "incomplete", "complete": false,
+ "incomplete": ["attachment 1: looks like an Outlook message but could not be read"],
+ "risks": [{"risk": "medium", "kind": "parse-incomplete", "detail": "1 part(s) not read; this report is partial: attachment 1: looks like an Outlook message but could not be read"}]}
+```
+Too big (any script), exit 3:
+```json
+{"ok": false, "status": "refused", "error": "file is 62914575 bytes, over the 52428800 byte limit (--max-bytes)"}
+```
+Output folder exists (`extract_attachments.py`), exit 3, nothing touched:
+```json
+{"ok": false, "status": "refused", "error": "OUTDIR exists: ex1 (choose a new folder; nothing is overwritten)"}
+```
+Not a mail file, exit 2:
+```json
+{"ok": false, "status": "error", "error": "not an .eml, .msg or TNEF file"}
+```
+Timeout, exit 3:
+```json
+{"ok": false, "status": "refused", "error": "time limit of 60s reached (--timeout); nothing was completed"}
+```
+

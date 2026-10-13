@@ -144,8 +144,10 @@ GET /me/messages/{id}?$select=subject,from,receivedDateTime,hasAttachments&$expa
                                                # 200 OK; attachments[] carry contentBytes for small files;
                                                # @odata.type tells file, item or reference
 GET /me/messages/{id}/attachments/{attachment-id}/$value
-                                               # 200 OK, raw bytes of a fileAttachment: save, then run
-                                               # extract/inspect rules on them; never open
+                                               # 200 OK: raw bytes for a fileAttachment, MIME text for
+                                               # an itemAttachment (an attached message); reference
+                                               # (cloud) attachments have no bytes here, only a link.
+                                               # Save, run the inspect/extract rules on them; never open
 
 # 5. Reply as a draft (nothing is sent). Learn: message-createreply, message-update, message-send.
 POST /me/messages/{id}/createReply             # 201 Created, the draft message; keep its id
@@ -178,6 +180,8 @@ GET /me/mailFolders/inbox/messageRules/{rule-id}   # read back before saying it 
 # 8. A week of calendar, in the user's zone. Learn: user-list-calendarview.
 GET /me/calendarView?startDateTime=2026-10-19T00:00:00Z&endDateTime=2026-10-26T00:00:00Z&$select=subject,start,end,organizer,isOnlineMeeting&$orderby=start/dateTime&$top=50
 Prefer: outlook.timezone="Pakistan Standard Time"
+    # the window is in UTC: for the user's local week, convert local midnight to UTC first
+    # (Monday 00:00 PKT = Sunday 19:00Z); the header only sets the zone of the returned times
                                                # 200 OK; recurring meetings come back as single
                                                # occurrences; follow @odata.nextLink as in 1
 ```

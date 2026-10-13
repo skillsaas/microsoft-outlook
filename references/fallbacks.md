@@ -31,6 +31,15 @@ bwrap --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 \
    there is no bwrap: use classic Outlook, or a disposable VM.
 4. For an .ost: read the server mailbox through Graph instead; an .ost belongs to a profile.
 
+## A real .msg gives `complete: false` or exit 2
+1. Report what was read and list `incomplete`; never call a partial report clean.
+2. Ask the user to save the message again from Outlook as .msg, or forward it as an attachment and
+   save that (Outlook writes a fresh file), or export it as .eml (Outlook on the web: "Download").
+3. If the user's tools allow it, a second reader can confirm a damaged file: `olefile` or
+   `extract-msg` (Python, not bundled; read-only use), in the same sandbox, never opening attachments.
+4. Do not retry with raised caps or `--allow-incomplete` without saying why and asking.
+5. Report the error line and Outlook version (not the file) to the skill's issue tracker.
+
 ## RTF-only bodies
 Since 0.1.1 the inspector decodes compressed RTF (flag `body-from-rtf`). If that fails, the
 report says `RTF body not decoded` under `incomplete`. Then ask the user to save the message as HTML or forward it as an attachment from new

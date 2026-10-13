@@ -1,13 +1,13 @@
 ---
 name: microsoft-outlook
-description: "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking a message for phishing, extracting attachments safely, reading meeting invites and time zones, or automating Outlook through Microsoft Graph mail and calendar, Office.js add-ins, rules, signatures and search (AQS/KQL), in new or classic Outlook. Drafts only: never sends mail itself. Not needed for Gmail web or plain SMTP code."
+description: "Use when reading or triaging Outlook mail files (.msg, .eml, winmail.dat/TNEF, .ics, .pst), checking a message for phishing, extracting attachments safely, reading meeting invites and time zones, or automating Outlook through Microsoft Graph mail and calendar, Office.js add-ins, rules, signatures and search (AQS/KQL), in new or classic Outlook. Drafts by default: sends only a draft the user approved, after reading it back. Not needed for Gmail web or plain SMTP code."
 license: MIT
-compatibility: "Python 3.9+ standard library only. Tested on Linux only; macOS and Windows expected but untested. Real Outlook-saved .msg files untested (synthetic fixtures). .pst is orientation only. Graph, Office.js and VBA parts are documented from Microsoft Learn and not run against a tenant."
+compatibility: "Python 3.9+ standard library only. Tested on Linux only; macOS and Windows expected but untested. Read-tested on 28 public sample .msg files (not shipped; Outlook versions unknown). .pst is orientation only. Graph, Office.js and VBA parts are documented from Microsoft Learn and not run against a tenant."
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
   updated: "2026-10-13"
   last_verified: "2026-10-13"
-  tested_with: "Python 3.13.5 on Linux x86_64; cross-checked .msg fixture with olefile 0.47 and extract-msg 0.56.1; TNEF parser compared with tnefparse 1.4.0 on its 19 sample files"
+  tested_with: "Python 3.13.5 on Linux x86_64; cross-checked .msg fixture with olefile 0.47 and extract-msg 0.56.1; TNEF parser compared with tnefparse 1.4.0 on its 19 sample files; 28 public sample .msg and 10 .eml files from the test sets of MSGReader (MIT), msg-extractor (GPL-3.0) and ruby-msg parsed with no traceback, subjects and attachment names equal to extract-msg 0.56.1"
   checked_against: "Office.js names: @types/office-js 1.0.611. Graph, EWS retirement, new Outlook, rules, search: Microsoft Learn and Microsoft Support, read 2026-10-13. Not run: Outlook, a Graph tenant, an add-in, macOS, Windows."
   risk: "medium"
   risk_notes: "Reads untrusted mail. Scripts never open links, fetch images, run attachments, send mail or contact a server; they write only into a new folder. A low score is not proof a message is safe: authentication results can only be trusted from the user's own mail server, and new phishing tricks will be missed."
@@ -43,7 +43,7 @@ Key JSON fields (full schema: `json-output.md`):
 ```json
 {"status": "ok", "complete": true, "incomplete": [], "overall_risk": "high",
  "risks": [{"risk": "high", "kind": "reply-to-other-domain", "detail": "replies go to other-domain.example, not paypa1-alerts.example (approximate domain comparison, no Public Suffix List)"}],
- "attachments": [{"index": "1", "name": "invoice.pdf.exe", "risk": "high", "reasons": ["double-extension", "outlook-blocked-type"]}],
+ "attachments": [{"index": "1", "name": "invoice.pdf.exe", "risk": "high", "reasons": ["double-extension", "outlook-blocked-type", "executable-content:windows-executable"]}],
  "not_checked": ["links are analyzed as text only; no URL is fetched, ..."]}
 ```
 No Python 3.9+? Do not improvise a parser or open the file another way: see `fallbacks.md` or
@@ -87,7 +87,7 @@ All take `--json`, `--version`, `--max-bytes`, `--timeout`; never fetch, send or
 | Script | Does | Main options |
 | :--- | :--- | :--- |
 | `inspect_mail.py FILE` | Headers, top auth result, body preview (RTF bodies decoded), links, HTML traps, attachments with risk and SHA-256, nested messages, `risks`, `not_checked`, `complete` | `--body N`, `--show-targets`, `--fail-on-risk high`, `--allow-incomplete`, `--max-attachments` |
-| `extract_attachments.py FILE OUT` | Saves into a new folder, safe names, 0600 files and manifest; high-risk skipped; containers' contents saved, not the container; refuses partial parses | `--dry-run`, `--only 1,3/1`, `--only-ext .pdf,.docx`, `--skip-inline`, `--include-risky`, `--allow-incomplete`, `--max-file`, `--max-total`, `--max-attachments` |
+| `extract_attachments.py FILE OUT` | Saves into a new folder, safe names, 0600 files and manifest; high-risk skipped; containers' contents saved, not the container (an attached message is not saved as a file; its attachments are, as 2/1); refuses partial parses | `--dry-run`, `--only 1,3/1`, `--only-ext .pdf,.docx`, `--skip-inline`, `--include-risky`, `--allow-incomplete`, `--max-file`, `--max-total`, `--max-attachments` |
 | `inspect_ics.py FILE` | METHOD, events, organizer, attendees, RRULE as written, links, alarms; UTC, IANA and Windows zones converted; DST gaps flagged | `--tz ZONE`, `--max-events`, `--fail-on-risk`, `--allow-incomplete` |
 Helpers: `mailsafe.py`, `mailparse.py`, `msgcfb.py` (.msg), `tnef.py` (winmail.dat), `rtfbody.py`
 (compressed RTF), `windows_zones.json` (CLDR, Unicode License v3: `LICENSE-CLDR.txt`).
@@ -98,7 +98,7 @@ Helpers: `mailsafe.py`, `mailparse.py`, `msgcfb.py` (.msg), `tnef.py` (winmail.d
 | 0 | Done [`ok`] | Summarize |
 | 1 | Finished, needs a decision [`risk-threshold`, `risky-skipped`, `incomplete`] | Name the items and why; ask before going further |
 | 2 | Not a mail or calendar file, corrupt, bad option [`error`] | Ask for the original file |
-| 3 | Safety refusal: size, count, time, output exists [`refused`] | Name the limit; ask before raising it |
+| 3 | Refused [`refused`]: a safety cap (size, count, time), or OUTDIR already exists (a setup refusal: pick a new folder, no risk involved) | Name the limit; ask before raising a cap |
 Incomplete parses follow one policy in every script: exit 1, status `incomplete`, the gaps
 listed in `incomplete`; inspect still prints the full report, extract writes nothing.
 `--allow-incomplete` makes it exit 0 (both inspectors) or save what was read (extract). Default caps:

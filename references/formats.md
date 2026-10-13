@@ -10,7 +10,7 @@ Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, rea
 | :--- | :--- | :--- | :--- | :--- |
 | attached `.msg` or `winmail.dat` inside any message | yes since 0.1.2: detected by bytes, whatever the name or MIME type, and parsed as a nested message | its attachments too | synthetic | |
 | `.eml` (MIME) | yes, `inspect_mail.py` | yes | stdlib parser; synthetic fixtures | S/MIME decryption |
-| `.msg` | yes | yes | synthetic fixture cross-checked with olefile and extract-msg | real Outlook-saved files untested; named properties |
+| `.msg` | yes | yes | synthetic fixture cross-checked with olefile and extract-msg; 28 public sample .msg files (see below) | controlled corpus of known Outlook versions; named properties |
 | `winmail.dat` (TNEF) | yes | yes | 19 tnefparse sample files | MAPI property types outside MS-OXTNEF basics |
 | compressed RTF body (in .msg or TNEF) | yes since 0.1.1 (`body-from-rtf` flag) | n/a | spec-built streams; cross-check with compressed_rtf | RTF formatting, embedded pictures and objects |
 | `.ics`, `.vcs` | yes, `inspect_ics.py` | n/a | synthetic fixture | RRULE expansion, VTIMEZONE rule evaluation |
@@ -19,7 +19,7 @@ Microsoft Open Specifications (learn.microsoft.com/openspecs) and IETF RFCs, rea
 
 ## Known-risky variants (real-world limits)
 Patterns that real Outlook files contain and how far the scripts go with them. "Synthetic" means a
-spec-built fixture covers it; nothing here was tried on a real Outlook-saved file.
+spec-built fixture covers it; "public samples" means the real-file run below exercised it.
 
 | Variant | What the scripts do | Covered by |
 | :--- | :--- | :--- |
@@ -122,7 +122,7 @@ what was missed in `incomplete`; extract writes nothing unless `--allow-incomple
 | :--- | :--- |
 | `tests/fixtures/sample.msg` (written from MS-CFB and MS-OXMSG by `make_fixtures.py`) read by olefile 0.47 and extract-msg 0.56.1 | Same subject, sender, To, Cc, body, 3 attachments, embedded message and its attachment bytes. Run it with `XCHECK_PYTHON=/path/to/python tests/smoke_test.py` |
 | `tnef.py` against tnefparse 1.4.0 on its 19 sample `.tnef` files | Same attachment count and names on all 19 (29 attachments). Bytes equal except where tnefparse strips trailing NUL bytes from data and keeps the 16-byte interface id in front of an OLE object; `tnef.py` keeps the data whole and drops the id, giving a valid Compound File |
-| Real .msg files saved by Outlook | **Not tested**: none available on the box; every .msg result comes from a synthetic fixture. To test your own, put Outlook-saved files in a folder and run `REAL_FIXTURES_DIR=/path python tests/smoke_test.py`: each .msg/.eml/.dat must give JSON with no traceback and exit 0 to 3. No real-file results are claimed here |
+| Public sample .msg and .eml files (0.1.4) | 28 public sample .msg and 10 .eml files from the test sets of MSGReader (MIT), msg-extractor (GPL-3.0) and ruby-msg (fetched for testing, not shipped: their licenses differ). All 38 went through inspect, extract and REAL_FIXTURES_DIR with no traceback. 37 complete; `TestWithAttachmentsAndInlines.eml` is correctly incomplete (two message/rfc822 parts hold plain text, not messages). All 28 .msg subjects and top-level attachment names equal extract-msg 0.56.1, including an attached .msg, an inner mail with attachments, RTF, HTML and plain bodies, French and Russian text, contacts and notes. 24 compressed RTF streams: 21 non-empty, all byte-identical to compressed_rtf 1.0.7, 0 CRC failures (so the CRC check stays an incomplete signal); 3 were empty beside a plain body and are now ignored. Outlook versions of the samples are unknown |
 | Python `email` on `.eml` | Standard library behavior; fixtures cover nested `message/rfc822`, TNEF inside MIME, RFC 2231 names |
 
 ## .pst and .ost (orientation only)

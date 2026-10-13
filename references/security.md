@@ -16,7 +16,12 @@ Run `inspect_mail.py FILE --json`, then read:
    domains differ, not as a look-alike); a reply-to on a shared hosting suffix outside the
    built-in list (`evil.github.io` vs `docs.github.io` look like the same site `github.io`);
    a compromised or free-mail account on the sender's real domain. It may **wrongly** flag a
-   company's own second domain (`contoso.com` replying via `contoso-mail.com`).
+   company's own second domain (`contoso.com` replying via `contoso-mail.com`). The rule: the last
+   two labels, or three when the last is a two-letter country code and the one before has at
+   most three letters (`co.uk`, `com.au`, `gov.pk`). So `sales.contoso.co.uk` and `contoso.co.uk`
+   match and `contoso.co.uk` vs `attacker.co.uk` differ, but a short company name under a country
+   code is misread as a suffix (`mail.abc.de` vs `abc.de` look different: a false flag), and
+   longer shared suffixes (`github.io`, `blogspot.com`) look like one site (a miss).
 3. **Authentication-Results.** Only the topmost header, added by the user's own receiving server,
    counts. Lower ones, or any in a .msg/.eml that went through other hands, may be written by the
    sender. `dmarc-fail` and `compauth-fail` (Microsoft composite authentication) are strong
@@ -28,7 +33,9 @@ Run `inspect_mail.py FILE --json`, then read:
    host or the tenant's own domain) and it sits above the first `Received:` line added by that
    system. If you cannot tell, or the file was forwarded as an attachment, report authentication as
    "unknown from this file", not pass or fail.
-4. **Links.** Each has `scheme`, `host` and `reasons`: `text-shows-other-host` (the text shows
+4. **Links.** `text-shows-other-host` also fires when the link text names another host anywhere
+   ("Please visit https://paypal.com now"), not only at the start; file names (`invoice.pdf`) and
+   email addresses in the text are ignored. Each has `scheme`, `host` and `reasons`: `text-shows-other-host` (the text shows
    one site, the link goes to another), `ip-host`, `punycode-host`, `non-ascii-host`,
    `userinfo-in-url` (`https://microsoft.com@evil.example`), `risky-scheme` (`javascript:`,
    `data:`, `file:`, `smb:`, `ms-msdt:`, `search-ms:`, `ms-*`), `invisible-chars-in-target`,
@@ -107,7 +114,16 @@ When a phishing judgment rests on comparing domains (`reply-to-other-domain`,
 in `not_checked`.
 
 "Never open" means never render or run: parsing bytes with these scripts and saving them with
-a safe name is not opening. Previewing, converting, unzipping or double-clicking is.
+a safe name is not opening. Previewing, converting, unzipping or double-clicking is. Examples:
+reading an attachment's first bytes for a type check (the scripts do this) is fine; saving
+`report.docx` under that name into the output folder is fine; unzipping that .docx to read its
+XML, generating a thumbnail, or letting a preview pane show it is opening (parser and renderer
+bugs are the attack surface), so use the matching skill's inspector instead.
+- Content beats the name: an attachment whose bytes are an executable (`MZ`, ELF, Mach-O), a
+  `#!` script or HTML/script text is high risk (`executable-content:*`) whatever its extension, so
+  `fake.pdf` holding `MZ` is skipped even with `--only-ext .pdf`; a .pdf/.png/.jpg/.docx whose
+  bytes do not match the type is medium (`content-does-not-match-extension`). This is a type
+  check, not malware scanning: a real PDF can still be malicious.
 
 After extraction: do not open, render, unzip or convert the files. If the user wants content
 from a received Office file, use the matching skill's inspector (microsoft-word,

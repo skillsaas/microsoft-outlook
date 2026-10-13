@@ -757,6 +757,41 @@ def _():
     assert "\x1b" not in d["error"] and "\u202e" not in d["error"] and d["incomplete"] == ["xy"], d
 
 
+@test("v0.1.4 (Tariq): link text naming another host anywhere is a mismatch; content magic beats the name")
+def _():
+    import mailsafe, base64
+    for txt in ("Please visit https://paypal.com now", "Click paypal.com.", "Log in at www.paypal.com/secure today"):
+        assert "text-shows-other-host" in mailsafe.analyze_url("https://evil.example/x", txt)["reasons"], txt
+    for txt in ("Open invoice.pdf", "mail bob@paypal.com", "evil.example", "Visit www.evil.example/login", "click here"):
+        assert "text-shows-other-host" not in mailsafe.analyze_url("https://evil.example/x", txt)["reasons"], txt
+    payloads = {"fake.pdf": b"MZ\x90\x00" + b"\x00" * 200, "elf.pdf": b"\x7fELF" + b"\x00" * 200,
+                "run.pdf": b"#!/bin/sh\nrm -rf ~\n", "page.pdf": b"<html><script>x()</script></html>",
+                "real.pdf": b"%PDF-1.7\n%\xe2\xe3\n1 0 obj\n", "odd.pdf": b"just text, not a pdf"}
+    def part(name, data):
+        return (b"--B\r\nContent-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n"
+                b"Content-Disposition: attachment; filename=" + name.encode() + b"\r\n\r\n" + base64.encodebytes(data) + b"\r\n")
+    eml = (b"From: a@example.com\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n"
+           + b"".join(part(n, d) for n, d in payloads.items()) + b"--B--\r\n")
+    f = write("magic.eml", eml)
+    out = os.path.join(TMP, "magic-out")
+    c, r, _ = run("extract_attachments.py", f, out, "--json", "--only-ext", ".pdf")
+    it = {i["name"]: i for i in r["attachments"]}
+    for n in ("fake.pdf", "elf.pdf", "run.pdf", "page.pdf"):
+        assert it[n]["risk"] == "high" and it[n]["saved_as"] is None and it[n]["skipped"].startswith("high risk"), it[n]
+    assert it["real.pdf"]["saved_as"] == "real.pdf" and it["real.pdf"]["risk"] == "low", it["real.pdf"]
+    assert it["odd.pdf"]["risk"] == "medium" and "content-does-not-match-extension" in it["odd.pdf"]["reasons"]
+    assert c == 1 and sorted(os.listdir(out)) == ["manifest.json", "odd.pdf", "real.pdf"], os.listdir(out)
+    out2 = os.path.join(TMP, "magic-out2")
+    c, r, _ = run("extract_attachments.py", f, out2, "--json", "--only-ext", ".pdf", "--include-risky")
+    assert "fake.pdf.quarantine" in os.listdir(out2) and "fake.pdf" not in os.listdir(out2), os.listdir(out2)
+    c, r, _ = run("inspect_mail.py", f, "--json")
+    assert {a["name"]: a["risk"] for a in r["attachments"]}["fake.pdf"] == "high"
+    import mailparse
+    m = mailparse._new("msg")
+    mailparse._rtf_body(m, b"")  # empty RTF stream beside a plain body, seen in real files: not damage
+    assert not m["incomplete"], m
+
+
 @test("real files: all 3 scripts give JSON without a traceback on every file in REAL_FIXTURES_DIR (optional)")
 def _():
     d = os.environ.get("REAL_FIXTURES_DIR")

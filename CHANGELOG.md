@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4 (2026-10-13)
+
+- Tariq (top): `text-shows-other-host` fires when the link text names a different host anywhere ("Please visit https://paypal.com now"), not only at the start; file names and email addresses in the text are ignored.
+- Tariq: content beats the name. Attachment bytes that are an executable (MZ, ELF, Mach-O), a `#!` script or HTML/script text are high risk (`executable-content:*`) whatever the extension, so `fake.pdf` holding MZ is skipped even with `--only-ext .pdf` (or saved as `.quarantine` with `--include-risky`). A .pdf, image or Office file whose bytes do not match its type is medium (`content-does-not-match-extension`). Applies in inspect and extract.
+- Real-file run: 28 public sample .msg and 10 .eml files (MSGReader, msg-extractor, ruby-msg test sets; fetched for testing, not shipped) through all three scripts with no traceback. .msg subjects and attachment names equal extract-msg 0.56.1; 21 non-empty real compressed RTF bodies byte-identical to compressed_rtf 1.0.7, 0 CRC failures, so the CRC check stays an incomplete signal (mistral). An empty RTF stream beside a plain body is now ignored. Compatibility line, formats.md, skill.json and a README Validation table updated (perplexity, mistral, mini, luna, mistral-small).
+- haiku: description now "Drafts by default: sends only a draft the user approved, after reading it back"; exit 3 explains that an existing OUTDIR is a setup refusal; fallbacks.md section for a real .msg that gives `complete: false`; attached messages in extract explained; the exact domain rule with its false flags and misses; concrete "never open" examples.
+- gemma: json-output.md example results for the common failure states (real output).
+- chatgpt: calendar.md table for ambiguous, nonexistent and floating times, unknown zones, invalid dates, RRULE, EXDATE/RECURRENCE-ID and SEQUENCE; Graph recipe 4 says which attachment types `$value` serves; recipe 8 explains the UTC window vs the user's week.
+- Tests: 48 plus 4 optional.
+
 ## 0.1.3 (2026-10-13)
 
 - An attached Outlook message or TNEF found by its bytes is a container (risk at least medium) whatever its filename or MIME type; extract does not save the container itself, only its attachments, matching the TNEF policy (Tariq N8). Shared `kind_risk` in mailsafe.py used by inspect and extract.

@@ -230,6 +230,8 @@ def _rtf_body(m, raw):
     """Fill text or html from a compressed RTF body when nothing better is stored."""
     if not isinstance(raw, bytes) or m["html"] or m["text"]:
         return
+    if not raw:  # Outlook sometimes writes an empty RTF stream beside a plain body: no body, not damage
+        return
     try:
         rtf, w, damaged = rtfbody.decompress(raw)
         b = rtfbody.to_body(rtf)

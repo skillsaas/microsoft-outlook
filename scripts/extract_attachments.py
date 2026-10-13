@@ -58,7 +58,7 @@ def plan(m, a):
         only_ext = {x.strip().lower().lstrip(".") for x in a.only_ext.split(",") if x.strip()}
     for idx, att in walk(m):
         risk, reasons = mailsafe.attachment_risk(att["name"], att["content_type"])
-        risk, reasons = mailsafe.kind_risk(att["kind"], risk, reasons)
+        risk, reasons = mailsafe.kind_risk(att["kind"], risk, reasons, att["data"], att["name"])
         it = {"index": idx, "name": mailsafe.clean_text(att["name"], 300), "kind": att["kind"],
               "size": len(att["data"] or b""), "sha256": mailparse.sha256(att["data"]) if att["data"] else None,
               "risk": risk, "reasons": reasons, "saved_as": None, "skipped": None}
