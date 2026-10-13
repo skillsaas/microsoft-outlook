@@ -32,6 +32,27 @@ Fields that matter:
   daylight saving (tested: 14:00 Europe/London on 2026-10-16 is 18:00 Asia/Karachi).
 - Always report times in the user's zone with the zone named, and say when a meeting recurs.
 
+### Common IANA to Windows names (from the bundled CLDR windows_zones.json)
+Graph `Prefer: outlook.timezone` and event `timeZone` accept either; Outlook shows the Windows name.
+For any zone not listed, look it up in `scripts/windows_zones.json`; never guess.
+
+| IANA | Windows |
+| :--- | :--- |
+| America/New_York | Eastern Standard Time |
+| America/Chicago | Central Standard Time |
+| America/Denver | Mountain Standard Time |
+| America/Los_Angeles | Pacific Standard Time |
+| Europe/London | GMT Standard Time |
+| Europe/Berlin | W. Europe Standard Time |
+| Europe/Paris | Romance Standard Time |
+| Asia/Dubai | Arabian Standard Time |
+| Asia/Karachi | Pakistan Standard Time |
+| Asia/Kolkata (CLDR: Asia/Calcutta) | India Standard Time |
+| Asia/Shanghai | China Standard Time |
+| Asia/Tokyo | Tokyo Standard Time |
+| Australia/Sydney | AUS Eastern Standard Time |
+| UTC | UTC |
+
 ## What inspect_ics.py does with hard cases
 | Case | Output | Agent should |
 | :--- | :--- | :--- |
