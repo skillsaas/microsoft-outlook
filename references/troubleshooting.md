@@ -9,6 +9,7 @@ Last verified: 2026-10-13 (sources listed at the end; not re-checked since).
 | `unsupported CFB header` or `bad directory tree` | File truncated or not Outlook's | Ask the user to save the message again from Outlook |
 | Body empty, or `RTF body not decoded` under `incomplete` | RTF-only message the decoder could not read | `fallbacks.md` RTF section |
 | `no-authentication-results` | Saved .msg from Outlook often lacks transport headers | Say the sender could not be verified from the file; check in Outlook (message details) |
+| `no time zone database` with `--tz` (exit 2) | Windows Python ships no zone data | `python -m pip install tzdata`, or run without `--tz` (times listed as written) |
 | Wrong meeting time | `tzid`, `iana`, `local_time` in `inspect_ics.py --tz` output | Windows names are mapped with CLDR; a DST gap or overlap needs the organizer's confirmation |
 | Graph `401` after working earlier | token expired | Let the connector or MSAL get a new token; never paste one by hand |
 | Sign-in asks for admin approval | scope needs admin consent in this tenant | Stop; tell the user which scope and why; do not try other scopes |

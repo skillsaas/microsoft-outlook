@@ -1,10 +1,13 @@
 name: test
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 permissions:
   contents: read
 jobs:
   smoke:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.9", "3.13"]
@@ -14,4 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Time zone data (Windows Python has none of its own)
+        if: runner.os == 'Windows'
+        run: python -m pip install -r scripts/requirements.txt
       - run: python tests/smoke_test.py

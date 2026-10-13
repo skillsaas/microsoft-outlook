@@ -59,9 +59,10 @@ CANARY = "http://127.0.0.1:%d/pixel.gif" % SRV.server_port
 FX = make_fixtures.build_all(os.path.join(TMP, "fx"), CANARY)
 
 
-def run(script, *args):
+def run(script, *args, env=None):
     p = subprocess.run([sys.executable, os.path.join(SCRIPTS, script)] + list(args),
-                       capture_output=True, text=True, timeout=120, cwd=TMP)
+                       capture_output=True, text=True, timeout=120, cwd=TMP,
+                       env=dict(os.environ, **env) if env else None)
     data = None
     if any(str(x).startswith("--js") for x in args):
         try:
@@ -347,13 +348,17 @@ def _():
     real = os.path.join(TMP, "realdir")
     os.makedirs(real, exist_ok=True)
     link = os.path.join(TMP, "linkdir")
-    if not os.path.lexists(link):
-        os.symlink(real, link)
+    try:
+        if not os.path.lexists(link):
+            os.symlink(real, link, target_is_directory=True)
+    except (OSError, NotImplementedError):  # Windows without Developer Mode cannot make symlinks
+        link = real
     c, r, _ = run("extract_attachments.py", FX["phish.eml"], os.path.join(link, "o"), "--json", "--include-risky")
-    assert c == 0 and r["outdir"] == os.path.join(os.path.realpath(real), "o"), r
+    assert c == 0 and os.path.normcase(r["outdir"]) == os.path.normcase(os.path.join(os.path.realpath(real), "o")), r
     assert os.listdir(os.path.join(real, "o"))
     m = os.path.join(real, "o", "manifest.json")
-    assert stat.S_IMODE(os.stat(m).st_mode) == 0o600
+    if os.name == "posix":  # 0600 is a POSIX mode; Windows uses ACLs and reports 0666
+        assert stat.S_IMODE(os.stat(m).st_mode) == 0o600
 
 
 @test("extract: --max-total refuses and leaves no folder")
@@ -1094,6 +1099,20 @@ def _():
     assert c in (0, 1) and r["ok"] and r["headers"]["subject"] == "s", r
 
 
+@test("v0.1.9: without a time zone database, --tz fails clearly (exit 2, names tzdata) and the file still reads without --tz")
+def _():
+    try:
+        import tzdata  # noqa: F401
+        raise Skip("the tzdata package is installed, so the database cannot be hidden")
+    except ImportError:
+        pass
+    env = {"PYTHONTZPATH": os.path.join(TMP, "no-zones")}
+    c, r, _ = run("inspect_ics.py", FX["invite.ics"], "--json", "--tz", "Asia/Karachi", env=env)
+    assert c == 2 and r["status"] == "error" and "tzdata" in r["error"], r
+    c, r, _ = run("inspect_ics.py", FX["invite.ics"], "--json", env=env)
+    assert c == 0 and r["events"] and r["events"][0]["start"]["tzid"], r
+
+
 @test("real files: all 3 scripts on every file in REAL_FIXTURES_DIR: valid JSON, consistent content, known samples match (optional)")
 def _():
     import hashlib
@@ -1319,9 +1338,10 @@ def main():
 @test("release: the packed npm artifact holds SKILL.md, every referenced file and script (optional: needs npm)")
 def _():
     import shutil as _sh
-    if not _sh.which("npm"):
+    if not (_sh.which("npm") or _sh.which("npm.cmd")):
         raise Skip("npm not on PATH")
-    out = subprocess.run(["npm", "pack", "--dry-run", "--json"], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    npm = _sh.which("npm.cmd") if os.name == "nt" else None  # npm is a .cmd script on Windows
+    out = subprocess.run([npm or _sh.which("npm") or "npm", "pack", "--dry-run", "--json"], cwd=ROOT, capture_output=True, text=True, timeout=120)
     files = {f["path"] for f in json.loads(out.stdout)[0]["files"]}
     sk = open(os.path.join(ROOT, "SKILL.md"), encoding="utf-8").read()
     need = {"SKILL.md", "skill.json", "LICENSE", "scripts/windows_zones.json", "scripts/LICENSE-CLDR.txt"}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9 (2026-10-13)
+
+- Windows: Python on Windows has no time zone database. `inspect_ics.py --tz` now checks for one first and fails clearly (exit 2, names `pip install tzdata`, says to run without `--tz` to list times as written); `scripts/requirements.txt` lists `tzdata` for Windows and CI installs it. Test added (hides the database with PYTHONTZPATH).
+- `.gitattributes` marks samples and fixtures as binary, so a Windows checkout no longer changes their bytes and SHA-256.
+- The npm pack test calls `npm.cmd` on Windows.
+- The OUTDIR test failed on Windows because symlinks need Developer Mode and 0600 is a POSIX mode: it now falls back to a plain folder when a symlink cannot be made, compares paths case-insensitively where the OS does, and checks the mode on POSIX only.
+- CI: `fail-fast: false`, so one OS failing no longer cancels the others. Green on Linux, macOS and Windows with Python 3.9 and 3.13.
+- Tests: 58 plus 3 optional.
+
 ## 0.1.8 (2026-10-13)
 
 - Tariq N22 (medium): the comment skipper is one linear pass (one search per comment for `-->` or `--!>`), capped at 20,000 comments; 1 MB of `<!---->` now takes milliseconds, not about 50 s. Perf test added.

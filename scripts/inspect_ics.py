@@ -35,6 +35,23 @@ try:
 except ImportError:  # Python < 3.9
     zoneinfo = None
 
+NO_TZDATA = ("no time zone database on this system, so --tz cannot convert times. On Windows "
+             "run: python -m pip install tzdata (Python reads zone data from it; macOS and Linux "
+             "ship it). Or run without --tz: times are then listed as written, with their TZID.")
+
+
+def tz_database_ok():
+    """True when zoneinfo can load a real zone. Windows Python has no zone data of its own and
+    needs the tzdata package; without it every ZoneInfo() call fails."""
+    if not zoneinfo:
+        return False
+    try:
+        zoneinfo.ZoneInfo("America/New_York")
+        return True
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+        return False
+
+
 ORDER = {"low": 0, "info": 0, "medium": 1, "high": 2}
 
 
@@ -308,6 +325,8 @@ def _main(argv=None):
     if a.tz:
         if not zoneinfo:
             return mailsafe.fail(a.json, 2, "--tz needs Python 3.9+ zoneinfo")
+        if not tz_database_ok():
+            return mailsafe.fail(a.json, 2, NO_TZDATA)
         try:
             zoneinfo.ZoneInfo(a.tz)
         except (zoneinfo.ZoneInfoNotFoundError, ValueError):

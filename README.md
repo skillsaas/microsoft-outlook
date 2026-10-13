@@ -24,7 +24,8 @@ npm install microsoft-outlook                 # files land in node_modules/micro
 # Planned, not yet published: npx @skillsaas/cli add microsoft-outlook
 ```
 Or copy this folder into your agent's skills folder (for example `.claude/skills/` or
-`.agents/skills/`). No pip install: the scripts use the Python 3.9+ standard library only.
+`.agents/skills/`). No pip install on macOS or Linux: the scripts use the Python 3.9+ standard library only. On
+Windows, `inspect_ics.py --tz` needs time zone data: `python -m pip install tzdata`.
 
 Try it: `python scripts/inspect_mail.py tests/fixtures/phish.eml`, then `python tests/smoke_test.py`.
 
@@ -73,7 +74,7 @@ a file fails, open an issue with the script, the error line and the Outlook vers
 itself unless it holds nothing private.
 
 ## Status and maintenance
-Version 0.1.8, published on npm and GitHub (pre-1.0). Tested on Linux only; Graph, Office.js and VBA parts
+Version 0.1.9, published on npm and GitHub (pre-1.0). Tested on Linux only; Graph, Office.js and VBA parts
 are documented from Microsoft Learn and were not run against a tenant. The `.msg` fixture is
 synthetic (built from the specs and cross-read by olefile and extract-msg); no real Outlook-saved
 .msg was available. Each version is reviewed by a panel of people and AI agents; CHANGELOG.md says

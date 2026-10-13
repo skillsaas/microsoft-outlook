@@ -1,6 +1,6 @@
 {
   "name": "microsoft-outlook",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Agent skill (SKILL.md) for Microsoft Outlook: inspect .msg, .eml, winmail.dat (TNEF) and .ics files offline, triage phishing, extract attachments safely, and use Microsoft Graph mail and calendar, Office.js add-ins, rules, signatures and search in new and classic Outlook. Drafts by default; sends only an approved draft.",
   "license": "MIT",
   "author": "Ali Tanveer",

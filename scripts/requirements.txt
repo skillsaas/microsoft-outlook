@@ -1,2 +1,4 @@
-# microsoft-outlook scripts use the Python 3.9+ standard library only. Nothing to install.
+# microsoft-outlook scripts use the Python 3.9+ standard library only. Nothing to install on
+# macOS or Linux. On Windows, inspect_ics.py --tz needs time zone data:
+tzdata; sys_platform == "win32"
 # Optional, for the cross-check test only (run with XCHECK_PYTHON): olefile, extract-msg.

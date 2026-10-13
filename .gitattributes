@@ -1,0 +1,8 @@
+# Sample and fixture mail files are compared by SHA-256: never convert their line endings.
+tests/samples/** binary
+tests/fixtures/** binary
+*.msg binary
+*.eml binary
+*.dat binary
+*.ics binary
+*.oft binary
